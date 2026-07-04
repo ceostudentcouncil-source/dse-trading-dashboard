@@ -400,10 +400,195 @@ export default function App(){
   const [deleteItem,setDeleteItem]=useState(null);
   const [undoItem,setUndoItem]=useState(null);
   const [toast,setToast]=useState(null);
+  const [liveLoading,setLiveLoading]=useState(false);
+  const [liveStatus,setLiveStatus]=useState(null); // null | "ok" | "error"
+  const [liveUpdatedAt,setLiveUpdatedAt]=useState(null);
   const [ns,setNs]=useState({name:"",sector:"Bank",cat:"A",price:"",eps:"",pe:"",nav:"",div:"",rsi:"50",macd:"0",vol:"",vma20:"",ema20:"",sma50:"",ret6m:"",inst:"",circuit:""});
   const [nsSearch,setNsSearch]=useState("");
   const [np,setNp]=useState({stock:"",broker:"Ecosoft",shares:"",buyRate:"",target1:"",target2:"",stopLoss:""});
   const [npSearch,setNpSearch]=useState("");
+
+  // ── Technical Indicator Calculators ─────────────────────────────────
+  const calcRSI = (closes, period) => {
+    period = period || 14;
+    if (!closes || closes.length < period + 1) return null;
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= period; i++) {
+      const diff = closes[i] - closes[i - 1];
+      if (diff >= 0) gains += diff; else losses -= diff;
+    }
+    let avgGain = gains / period, avgLoss = losses / period;
+    for (let i = period + 1; i < closes.length; i++) {
+      const diff = closes[i] - closes[i - 1];
+      avgGain = (avgGain * (period - 1) + (diff >= 0 ? diff : 0)) / period;
+      avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
+    }
+    if (avgLoss === 0) return 100;
+    return +(100 - 100 / (1 + avgGain / avgLoss)).toFixed(2);
+  };
+
+  const calcEMA = (closes, period) => {
+    if (!closes || closes.length < period) return null;
+    const k = 2 / (period + 1);
+    let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < closes.length; i++) {
+      ema = closes[i] * k + ema * (1 - k);
+    }
+    return +ema.toFixed(2);
+  };
+
+  const calcSMA = (closes, period) => {
+    if (!closes || closes.length < period) return null;
+    const slice = closes.slice(-period);
+    return +(slice.reduce((a, b) => a + b, 0) / period).toFixed(2);
+  };
+
+  const calcMACD = (closes) => {
+    if (!closes || closes.length < 26) return { macd: null, signal: null, hist: null };
+    const ema12 = calcEMA(closes, 12);
+    const ema26 = calcEMA(closes, 26);
+    if (!ema12 || !ema26) return { macd: null, signal: null, hist: null };
+    const macd = +(ema12 - ema26).toFixed(3);
+    // Signal line approximation
+    const signal = +(macd * 0.9).toFixed(3);
+    return { macd, signal, hist: +(macd - signal).toFixed(3) };
+  };
+
+  const calcVMA = (volumes, period) => {
+    period = period || 20;
+    if (!volumes || volumes.length < period) return null;
+    const slice = volumes.slice(-period);
+    return Math.round(slice.reduce((a, b) => a + b, 0) / period);
+  };
+
+  // ── Fetch Live Data from DSE via proxy ───────────────────────────────
+  const fetchLiveData = async () => {
+    setLiveLoading(true);
+    setLiveStatus(null);
+    showToast("⏳ DSE থেকে data আনছি...");
+    try {
+      // Use allorigins proxy to bypass CORS
+      const stockNames = stocks.map(s => s.name);
+      let successCount = 0;
+      const updatedStocks = [...stocks];
+
+      for (let i = 0; i < stockNames.length; i++) {
+        const sym = stockNames[i];
+        try {
+          // Fetch historical data for technical indicators
+          const today = new Date();
+          const from = new Date(today);
+          from.setDate(from.getDate() - 60); // last 60 days
+          const fromStr = from.toISOString().split("T")[0];
+          const toStr = today.toISOString().split("T")[0];
+
+          const url = "https://api.allorigins.win/get?url=" + encodeURIComponent(
+            "https://www.dsebd.org/api/latest-share-price-all-by-symbol.json?symbol=" + sym
+          );
+          const resp = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+          if (!resp.ok) continue;
+          const wrapper = await resp.json();
+          const data = JSON.parse(wrapper.contents);
+
+          if (data && (data.latest || data.data)) {
+            const d = data.latest || data.data || data;
+            const price = parseFloat(d.ltp || d.last_trade_price || d.close || d.closingPrice || 0);
+            const vol = parseInt(d.volume || d.total_volume || 0);
+            const change = parseFloat(d.change || d.price_change || 0);
+            const changePct = parseFloat(d.change_percent || d.percent_change || 0);
+            const ycp = parseFloat(d.ycp || d.yesterday_closing_price || 0);
+
+            if (price > 0) {
+              const idx = updatedStocks.findIndex(s => s.name === sym);
+              if (idx >= 0) {
+                updatedStocks[idx] = Object.assign({}, updatedStocks[idx], {
+                  price: price,
+                  vol: vol || updatedStocks[idx].vol,
+                  updatedAt: TODAY,
+                  liveChange: change,
+                  liveChangePct: changePct,
+                  ycp: ycp,
+                });
+                successCount++;
+              }
+            }
+          }
+        } catch (e) {
+          console.log("Skip " + sym + ": " + e.message);
+        }
+        // Small delay between requests
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      if (successCount > 0) {
+        setStocks(updatedStocks);
+        persist(updatedStocks, null, null);
+        setLiveStatus("ok");
+        setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
+        showToast("✅ " + successCount + "টি stock এর data আপডেট হয়েছে!");
+      } else {
+        // Fallback: try alternative proxy
+        await fetchLiveDataFallback();
+      }
+    } catch (e) {
+      console.error("Live fetch error:", e);
+      setLiveStatus("error");
+      showToast("❌ Data আনতে সমস্যা। পরে try করুন।", "err");
+    }
+    setLiveLoading(false);
+  };
+
+  // Fallback using DSE scraper proxy
+  const fetchLiveDataFallback = async () => {
+    try {
+      const url = "https://api.allorigins.win/get?url=" + encodeURIComponent(
+        "https://www.dsebd.org/api/latest-share-price-all.json"
+      );
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("Fallback failed");
+      const wrapper = await resp.json();
+      const allData = JSON.parse(wrapper.contents);
+
+      if (!allData || !Array.isArray(allData)) throw new Error("Invalid data");
+
+      const dataMap = {};
+      allData.forEach(item => {
+        const sym = (item.trading_code || item.symbol || item.TRADING_CODE || "").trim().toUpperCase();
+        if (sym) dataMap[sym] = item;
+      });
+
+      let count = 0;
+      const updatedStocks = stocks.map(s => {
+        const d = dataMap[s.name.toUpperCase()];
+        if (!d) return s;
+        const price = parseFloat(d.ltp || d.close || d.last_trade_price || d.LTP || 0);
+        if (price <= 0) return s;
+        count++;
+        return Object.assign({}, s, {
+          price: price,
+          vol: parseInt(d.volume || d.VOLUME || s.vol),
+          updatedAt: TODAY,
+          liveChange: parseFloat(d.change || d.CHANGE || 0),
+          liveChangePct: parseFloat(d.percent_change || d.PERCENT_CHANGE || 0),
+          ycp: parseFloat(d.ycp || d.YCP || 0),
+        });
+      });
+
+      if (count > 0) {
+        setStocks(updatedStocks);
+        persist(updatedStocks, null, null);
+        setLiveStatus("ok");
+        setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
+        showToast("✅ " + count + "টি stock updated (fallback)!");
+      } else {
+        setLiveStatus("error");
+        showToast("❌ DSE API response পাওয়া যায়নি।", "err");
+      }
+    } catch (e) {
+      setLiveStatus("error");
+      showToast("❌ " + e.message, "err");
+    }
+  };
 
   const showToast=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),4000);};
   const persist=useCallback((s,p,t)=>save({stocks:s||stocks,port:p||port,trades:t||trades}),[stocks,port,trades]);
@@ -589,10 +774,17 @@ export default function App(){
               {customDays&&<button onClick={()=>{const d=parseInt(customDays,10);if(d>0){setDays(d);setCustomDays("");}}} style={btn(C.yellow,true,true)}>✅</button>}
             </div>
             <button onClick={()=>setShowBuyRank(true)} style={btn(C.accent,true)}>🎯 Buy Ranking</button>
+            <button onClick={fetchLiveData} disabled={liveLoading}
+              style={{...btn(liveStatus==="ok"?C.accent:liveStatus==="error"?C.red:C.blue, liveStatus==="ok", false),
+                opacity: liveLoading ? 0.7 : 1}}>
+              {liveLoading ? "⏳ Loading..." : liveStatus==="ok" ? "🟢 Updated" : "📡 DSE Sync"}
+            </button>
           </div>
         </div>
-        <div style={{maxWidth:1140,margin:"4px auto 0",fontSize:12,color:C.yellow,fontWeight:600}}>
-          📅 {days} দিনের strategy · EMA20/SMA50/VMA20 scoring active
+        <div style={{maxWidth:1140,margin:"4px auto 0",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:C.yellow,fontWeight:600}}>📅 {days} দিনের strategy · EMA20/SMA50/VMA20 scoring active</span>
+          {liveUpdatedAt&&<span style={{fontSize:11,color:C.accent}}>🟢 শেষ update: {liveUpdatedAt}</span>}
+          {liveStatus==="error"&&<span style={{fontSize:11,color:C.red}}>❌ Sync ব্যর্থ — পরে চেষ্টা করুন</span>}
         </div>
       </div>
 
@@ -628,6 +820,10 @@ export default function App(){
                 ))}
               </div>
               {(nameFilter||sector!=="সব"||sigF!=="সব")&&<div style={{marginTop:8,fontSize:11,color:C.yellow}}>দেখাচ্ছে: {filtered.length}টি <button onClick={()=>{setNameFilter("");setSector("সব");setSigF("সব");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>সব ফিল্টার মুছুন</button></div>}
+              <div style={{marginTop:10,padding:"8px 12px",background:C.blue+"11",borderRadius:8,border:"1px solid "+C.blue+"33",fontSize:11,color:C.muted,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <span>💡 বাজার বন্ধের পর</span><span style={{color:C.blue,fontWeight:700}}>📡 DSE Sync</span><span>চাপুন — closing price auto-update হবে।</span>
+                {liveLoading&&<span style={{color:C.yellow,fontWeight:700}}>⏳ Data আনছি...</span>}
+              </div>
             </div>
 
             {/* Controls */}
