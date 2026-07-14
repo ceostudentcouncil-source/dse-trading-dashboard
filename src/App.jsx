@@ -1,6 +1,48 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-const SK = "dse-v6";
+// ── Firebase Setup ─────────────────────────────────────────────
+const _fbApp = initializeApp({
+  apiKey: "AIzaSyCfWlWpPOW5igAZjRaLnWHHa7UcAFFnWcE",
+  authDomain: "dse-trading-dashboard.firebaseapp.com",
+  projectId: "dse-trading-dashboard",
+  storageBucket: "dse-trading-dashboard.firebasestorage.app",
+  messagingSenderId: "1373992881",
+  appId: "1:1373992881:web:540e6331dd4cade8076f90"
+});
+const _auth = getAuth(_fbApp);
+const _db = getFirestore(_fbApp);
+const _gp = new GoogleAuthProvider();
+const _signIn = () => signInWithPopup(_auth, _gp);
+const _signOut = () => signOut(_auth);
+const _getProfile = async (uid) => { try { const s=await getDoc(doc(_db,"users",uid)); return s.exists()?s.data():null; } catch { return null; } };
+const _saveProfile = async (uid, data) => { try { await setDoc(doc(_db,"users",uid),data,{merge:true}); } catch(e){console.log(e);} };
+const _getData = async (uid) => { try { const s=await getDoc(doc(_db,"users",uid,"appdata","main")); return s.exists()?s.data():null; } catch { return null; } };
+const _saveData = async (uid, data) => { try { await setDoc(doc(_db,"users",uid,"appdata","main"),{...data,updatedAt:new Date().toISOString()},{merge:true}); } catch(e){console.log(e);} };
+
+const SK = "dse-v7-local";
+const TODAY = new Date().toISOString().split("T")[0];
+
+const DEFAULT_BROKERS = [
+  { id:"Ecosoft",     name:"Ecosoft",     commission:0.30, withdrawFee:0 },
+  { id:"Lankabangla", name:"Lankabangla", commission:0.30, withdrawFee:0 },
+  { id:"অন্য",        name:"অন্য",        commission:0.35, withdrawFee:0 },
+  { id:"BRAC",        name:"BRAC",        commission:0.30, withdrawFee:0 },
+  { id:"EBL",         name:"EBL",         commission:0.30, withdrawFee:0 },
+];
+
+const DEFAULT_PROFILE = {
+  displayName:"", email:"", photoURL:"", phone:"",
+  defaultBroker:"Ecosoft",
+  brokers: DEFAULT_BROKERS,
+  bankAccounts:[{ id:"b1", name:"BRAC Bank", accountNo:"", branch:"" }],
+  joinDate: new Date().toISOString().split("T")[0],
+};
+
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString("bn-BD") : "—";
+const daysBetween = (a,b) => Math.floor((new Date(b)-new Date(a))/86400000);
 const load = () => { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null; } catch { return null; } };
 const save = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
 
@@ -8,7 +50,22 @@ const save = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch
 const INIT_STOCKS = [
   { id:1,  name:"SIMTEX",     sector:"Textile",      cat:"A", price:27.5,  eps:1.28,  pe:20.94, nav:22.39, div:10, rsi:65.85, macd:0.8,  vol:3460000, vma20:2800000, ema20:26.8,  sma50:25.4, ret6m:20, inst:7.57,  circuit:29.5, totalShares:7960000,  updatedAt:"2026-07-02" },
   { id:2,  name:"MONOSPOOL",  sector:"Engineering",  cat:"A", price:114.3, eps:4.12,  pe:27.74, nav:41.83, div:15, rsi:64.55, macd:2.5,  vol:771667,  vma20:600000,  ema20:110.5, sma50:105.2,ret6m:21, inst:4.13,  circuit:123.3,totalShares:3920000,  updatedAt:"2026-07-02" },
-  { id:3,  name:"SAPORTL",    sector:"NBFI",         cat:"A", price:52.8,  eps:3.2,   pe:16.5,  nav:28.5,  div:12, rsi:51.69, macd:1.4,  vol:5465800, vma20:4000000, ema20:51.2,  sma50:49.8, ret6m:15, inst:12.5,  circuit:57.8, totalShares:10000000, updatedAt:"2026-07-02" },
+  { id:3,  name:"SAPORTL",    sector:"Services & Real Estate", cat:"A", price:52.5, eps:2.85, pe:24.31, nav:35.37, div:18, rsi:53.51, macd:-0.2, vol:5143123, vma20:3381708, ema20:52.4, sma50:50.8, ret6m:23, inst:10.23, circuit:56.3, totalShares:23690000, updatedAt:"2026-07-15",
+    bb_upper:58.6, bb_lower:46.3, support1:46.3, support2:42.7, resistance1:56.3, resistance2:64.3,
+    w52h:64.3, w52l:22.3, ycp:51.2,
+    trend:"consolidation",
+    analysisNote:{
+      trend:"২০২৪ থেকে ২০২৫ পর্যন্ত strong uptrend (৳২০ → ৳৬৪), তারপর correction, এখন ৳৪৬-৳৫৩ range এ consolidation।",
+      bb:"BB Upper ৳৫৮.৬, Median ৳৫২.৪, Lower ৳৪৬.৩ — price এখন median এর কাছে ৳৫২.৫। Sideways range এ আছে।",
+      rsiNote:"RSI ৫৩.৫১ — neutral zone, না overbought না oversold। কোনো extreme signal নেই।",
+      macdNote:"MACD -০.২ (Signal 0.0, Histogram -০.২) — সামান্য bearish, কিন্তু almost zero। Crossover আসতে পারে।",
+      volumeNote:"৯০ দিনে avg volume ৩৩.৮ লাখ। আজ ৫১.৪ লাখ — VMA এর ১.৫x, above average। Interest বাড়ছে।",
+      fundamental:"EPS ২.৮৫ (annualized), P/E ২৪.৩১, NAV ৳৩৫.৩৭, Div ১৮% cash, Institute ১০.২৩%। ৫২W High ৳৬৪.৩, Low ৳২২.৩।",
+      strategy:"৳৪৮-৪৯ এ নামলে কিনুন (BB Lower দিকে)। অথবা ৳৫৪+ break করলে এবং MACD positive হলে কিনুন। Target: ৳৫৬.৩ (Circuit)। Stop Loss: ৳৪৬.৩।",
+      updatedBy:"Claude Analysis — Chart + Fundamental",
+      chartPeriod:"2024-2026 (Daily)"
+    }
+  },
   { id:4,  name:"PROVATIINS", sector:"Insurance",    cat:"A", price:58.9,  eps:2.8,   pe:21.0,  nav:32.1,  div:8,  rsi:76.66, macd:4.4,  vol:2511187, vma20:1800000, ema20:55.3,  sma50:51.6, ret6m:35, inst:6.2,   circuit:64.8, totalShares:5000000,  updatedAt:"2026-07-02" },
   { id:5,  name:"BRACBANK",   sector:"Bank",         cat:"A", price:65.3,  eps:5.8,   pe:11.3,  nav:42.5,  div:20, rsi:52.0,  macd:0.3,  vol:4624118, vma20:3500000, ema20:64.1,  sma50:62.5, ret6m:18, inst:28.5,  circuit:71.8, totalShares:12000000, updatedAt:"2026-07-02" },
   { id:6,  name:"CVOPRL",     sector:"Fuel & Power", cat:"A", price:167.1, eps:6.77,  pe:24.68, nav:31.9,  div:20, rsi:56.92, macd:1.3,  vol:154363,  vma20:120000,  ema20:162.4, sma50:158.9,ret6m:13, inst:19.23, circuit:181.7,totalShares:3030000,  updatedAt:"2026-07-02" },
@@ -25,17 +82,17 @@ const INIT_STOCKS = [
 ];
 
 const INIT_PORT = [
-  { id:1,  stock:"EPGL",       broker:"Ecosoft",     shares:7300,  buyRate:19.26, currentPrice:19.6, target1:20.5, target2:20.7, stopLoss:18.0, trailingSL:18.0, realized:0 },
-  { id:2,  stock:"EPGL",       broker:"Lankabangla", shares:12000, buyRate:19.26, currentPrice:19.6, target1:20.5, target2:20.7, stopLoss:18.0, trailingSL:18.0, realized:0 },
-  { id:3,  stock:"HAKKANIPUL", broker:"Ecosoft",     shares:2500,  buyRate:80.24, currentPrice:80.0, target1:82.0, target2:84.0, stopLoss:76.5, trailingSL:76.5, realized:0 },
-  { id:4,  stock:"HAKKANIPUL", broker:"অন্য",        shares:5000,  buyRate:81.24, currentPrice:80.0, target1:82.0, target2:84.0, stopLoss:76.5, trailingSL:76.5, realized:0 },
-  { id:5,  stock:"LOVELLO",    broker:"Ecosoft",     shares:9630,  buyRate:71.54, currentPrice:71.9, target1:75.5, target2:78.0, stopLoss:67.5, trailingSL:67.5, realized:0 },
-  { id:6,  stock:"LOVELLO",    broker:"Lankabangla", shares:5087,  buyRate:75.17, currentPrice:71.9, target1:75.5, target2:78.0, stopLoss:67.5, trailingSL:67.5, realized:0 },
-  { id:7,  stock:"MONNOFABR",  broker:"Ecosoft",     shares:23526, buyRate:21.77, currentPrice:22.4, target1:23.9, target2:25.0, stopLoss:21.0, trailingSL:21.0, realized:0 },
-  { id:8,  stock:"KPPL",       broker:"অন্য",        shares:10000, buyRate:16.25, currentPrice:16.2, target1:17.0, target2:18.0, stopLoss:14.8, trailingSL:14.8, realized:0 },
-  { id:9,  stock:"DESHBANDHU", broker:"Lankabangla", shares:10000, buyRate:20.86, currentPrice:21.3, target1:21.8, target2:22.5, stopLoss:19.8, trailingSL:19.8, realized:0 },
-  { id:10, stock:"ACMEPL",     broker:"Lankabangla", shares:6400,  buyRate:26.28, currentPrice:23.3, target1:24.1, target2:25.6, stopLoss:22.0, trailingSL:22.0, realized:0 },
-  { id:11, stock:"JAMUNABANK", broker:"Lankabangla", shares:19500, buyRate:24.13, currentPrice:24.2, target1:25.0, target2:25.9, stopLoss:22.5, trailingSL:22.5, realized:0 },
+  { id:1,  stock:"EPGL",       broker:"Ecosoft",     shares:7300,  buyRate:19.26, currentPrice:19.6, target1:20.5, target2:20.7, stopLoss:18.0, trailingSL:18.0, realized:0, buyDate:"2026-06-15", customSellTarget:null },
+  { id:2,  stock:"EPGL",       broker:"Lankabangla", shares:12000, buyRate:19.26, currentPrice:19.6, target1:20.5, target2:20.7, stopLoss:18.0, trailingSL:18.0, realized:0, buyDate:"2026-06-15", customSellTarget:null },
+  { id:3,  stock:"HAKKANIPUL", broker:"Ecosoft",     shares:2500,  buyRate:80.24, currentPrice:80.0, target1:82.0, target2:84.0, stopLoss:76.5, trailingSL:76.5, realized:0, buyDate:"2026-06-20", customSellTarget:null },
+  { id:4,  stock:"HAKKANIPUL", broker:"অন্য",        shares:5000,  buyRate:81.24, currentPrice:80.0, target1:82.0, target2:84.0, stopLoss:76.5, trailingSL:76.5, realized:0, buyDate:"2026-06-20", customSellTarget:null },
+  { id:5,  stock:"LOVELLO",    broker:"Ecosoft",     shares:9630,  buyRate:71.54, currentPrice:71.9, target1:75.5, target2:78.0, stopLoss:67.5, trailingSL:67.5, realized:0, buyDate:"2026-06-10", customSellTarget:null },
+  { id:6,  stock:"LOVELLO",    broker:"Lankabangla", shares:5087,  buyRate:75.17, currentPrice:71.9, target1:75.5, target2:78.0, stopLoss:67.5, trailingSL:67.5, realized:0, buyDate:"2026-06-10", customSellTarget:null },
+  { id:7,  stock:"MONNOFABR",  broker:"Ecosoft",     shares:23526, buyRate:21.77, currentPrice:22.4, target1:23.9, target2:25.0, stopLoss:21.0, trailingSL:21.0, realized:0, buyDate:"2026-05-28", customSellTarget:null },
+  { id:8,  stock:"KPPL",       broker:"অন্য",        shares:10000, buyRate:16.25, currentPrice:16.2, target1:17.0, target2:18.0, stopLoss:14.8, trailingSL:14.8, realized:0, buyDate:"2026-06-05", customSellTarget:null },
+  { id:9,  stock:"DESHBANDHU", broker:"Lankabangla", shares:10000, buyRate:20.86, currentPrice:21.3, target1:21.8, target2:22.5, stopLoss:19.8, trailingSL:19.8, realized:0, buyDate:"2026-06-18", customSellTarget:null },
+  { id:10, stock:"ACMEPL",     broker:"Lankabangla", shares:6400,  buyRate:26.28, currentPrice:23.3, target1:24.1, target2:25.6, stopLoss:22.0, trailingSL:22.0, realized:0, buyDate:"2026-06-01", customSellTarget:null },
+  { id:11, stock:"JAMUNABANK", broker:"Lankabangla", shares:19500, buyRate:24.13, currentPrice:24.2, target1:25.0, target2:25.9, stopLoss:22.5, trailingSL:22.5, realized:0, buyDate:"2026-06-22", customSellTarget:null },
 ];
 
 const SECTORS=["সব","Bank","Insurance","Pharma","Textile","IT","Fuel & Power","NBFI","Food","Engineering","অন্যান্য"];
@@ -71,78 +128,184 @@ function calcTrailingSL(p){
 }
 
 // ── Dynamic Strategy ─────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+// ENTERPRISE STRATEGY ENGINE v3
+// Rules:
+//   1. T1 < T2 < T3 — always guaranteed
+//   2. 0d = Pure Natural TA (no dayMult)
+//   3. Conflicting indicators resolved with clear explanation
+//   4. Minimum gaps enforced: T1 min +2.5%, T2 min +6%
+// ════════════════════════════════════════════════════════════════
 function generateStrategy(s,days,portShares){
-  days=days||7; portShares=portShares||0;
-  const navRatio=s.nav>0?s.price/s.nav:1;
-  const volM=s.vol/1000000;
+  portShares=portShares||0;
+  const p=s.price;
+  const rsi=s.rsi||50;
+  const macd=s.macd||0;
   const vma20=s.vma20||1000000;
+  const ema20=s.ema20||p;
+  const sma50=s.sma50||p;
+  const isAboveEMA=p>ema20;
+  const isAboveSMA=p>sma50;
   const isBreakoutVol=s.vol>vma20*2;
-  const isPump=s.vol>5000000&&s.rsi>70&&s.ret6m>40;
-  const isOversold=s.rsi<35;
-  const isBullMACD=s.macd>0.3;
+  const isHighVol=s.vol>vma20*1.3;
+  const isOversold=rsi<35;
+  const isOverbought=rsi>68;
+  const isBullMACD=macd>0.3;
+  const isBearMACD=macd<-0.3;
+  const isPump=s.vol>5000000&&rsi>70&&s.ret6m>40;
   const isFundStrong=s.eps>3&&s.pe>0&&s.pe<20;
-  const isUnderval=navRatio<1.5;
-  const isOverbought=s.rsi>68;
-  const isAboveEMA=s.ema20&&s.price>s.ema20;
-  const isAboveSMA=s.sma50&&s.price>s.sma50;
+  const isUnderval=s.nav>0&&p<s.nav*1.5;
+  const volM=(s.vol/1000000).toFixed(1);
+  const holdNote=portShares>0?"আপনার "+portShares.toLocaleString()+" shares":"";
+  const maSignal=(isAboveEMA&&isAboveSMA)?"🟢 EMA+SMA উপরে":isAboveEMA?"🟡 EMA উপরে":isAboveSMA?"🟡 SMA উপরে":"🔴 MA এর নিচে";
+
+  // Conflict detection: RSI and MACD pointing opposite directions
+  const rsiSaysBuy=rsi<40;
+  const rsiSaysSell=rsi>65;
+  const conflictBullRSIBearMACD=rsiSaysBuy&&isBearMACD;
+  const conflictBearRSIBullMACD=rsiSaysSell&&isBullMACD;
+  const hasConflict=conflictBullRSIBearMACD||conflictBearRSIBullMACD;
+  let conflictNote="";
+  if(conflictBullRSIBearMACD) conflictNote="⚠️ Conflict: RSI "+rsi.toFixed(0)+" (buy zone) কিন্তু MACD "+macd.toFixed(2)+" (bearish)। DSE rule: Volume দেখুন — volume বাড়লে তবেই কিনুন।";
+  if(conflictBearRSIBullMACD) conflictNote="⚠️ Conflict: RSI "+rsi.toFixed(0)+" (sell zone) কিন্তু MACD "+macd.toFixed(2)+" (bullish momentum)। Trailing SL tight রাখুন।";
+
+  // ── 0d Natural Mode ─────────────────────────────────────────
+  if(days===0){
+    const sl=+(p*0.93).toFixed(2);
+    let t1,t2,t3,sellT1,sellT2,sellT3,buySignal,buyZone,buyStr,sellStr,risk,priority;
+
+    if(isPump){
+      t1=+(p*1.03).toFixed(2);t2=+(p*1.06).toFixed(2);t3=null;
+      sellT1=70;sellT2=25;sellT3=5;risk="🔴 HIGH";priority=5;
+      buySignal="🔴 Pump — কিনবেন না";buyZone="—";
+      buyStr="Pump pattern! RSI "+rsi.toFixed(0)+", Volume "+volM+"M। এখন কিনলে আটকে যাবেন।";
+      sellStr="এখনই sell করুন। Pump stock যেকোনো সময় crash করতে পারে।";
+    } else if(hasConflict){
+      t1=+(p*1.04).toFixed(2);t2=+(p*1.09).toFixed(2);t3=null;
+      sellT1=40;sellT2=40;sellT3=20;risk="🟡 MEDIUM";priority=3;
+      buySignal="⚠️ Mixed Signal";buyZone="৳"+(p*0.97).toFixed(2)+"-৳"+p;
+      buyStr=conflictNote;
+      sellStr="Mixed signal — নিশ্চিত না হয়ে অপেক্ষা করুন। EMA20 (৳"+ema20.toFixed(2)+") support confirm হলে তবেই কিনুন।";
+    } else if(isOversold&&(isBullMACD||isBreakoutVol)){
+      t1=+(p*1.06).toFixed(2);t2=+(p*1.12).toFixed(2);t3=s.nav&&s.nav>p*1.15?+(s.nav*0.85).toFixed(2):null;
+      sellT1=40;sellT2=40;sellT3=20;risk="🟢 LOW";priority=1;
+      buySignal="🚀 Strong Natural Buy";buyZone="৳"+(p*0.98).toFixed(2)+"-৳"+p;
+      buyStr="RSI "+rsi.toFixed(0)+" Oversold + "+(isBullMACD?"MACD "+macd.toFixed(2)+" Bullish":"Volume Breakout "+volM+"M")+"। "+(isAboveEMA?"Price > EMA20 — Uptrend নিশ্চিত।":"EMA20 (৳"+ema20.toFixed(2)+") এর উপরে গেলে সিগনাল আরো শক্তিশালী হবে।");
+      sellStr="T1 (৳"+(+(p*1.06).toFixed(2))+") এ 40% sell। T1 hit হলে SL buyRate এ move করুন (Trailing SL)।";
+    } else if(isOverbought){
+      t1=+(p*1.03).toFixed(2);t2=+(p*1.06).toFixed(2);t3=null;
+      sellT1=60;sellT2=35;sellT3=5;risk="🔴 HIGH";priority=5;
+      buySignal="🔴 এখন কিনবেন না";buyZone="RSI "+(rsi-15).toFixed(0)+" নামলে";
+      buyStr="RSI "+rsi.toFixed(0)+" Overbought। "+conflictNote+" RSI ৫০ এর নিচে নামলে এবং EMA20 (৳"+ema20.toFixed(2)+") support এ কিনুন।";
+      sellStr="Position থাকলে এখনই sell করুন। Reversal যেকোনো সময় আসতে পারে।";
+    } else if(isAboveEMA&&isAboveSMA&&isBullMACD){
+      t1=+(p*1.06).toFixed(2);t2=+(p*1.12).toFixed(2);t3=+(p*1.18).toFixed(2);
+      sellT1=35;sellT2=40;sellT3=25;risk="🟢 LOW-MED";priority=2;
+      buySignal="✅ Natural Buy";buyZone="৳"+ema20.toFixed(2)+"-৳"+p;
+      buyStr="Price > EMA20 (৳"+ema20.toFixed(2)+") > SMA50 (৳"+sma50.toFixed(2)+"). MACD "+macd.toFixed(2)+" bullish। Uptrend confirmed।"+(isBreakoutVol?" Volume "+volM+"M — Breakout!":"");
+      sellStr="RSI "+rsi.toFixed(0)+" এখন OK। RSI 68+ হলে বা EMA20 ভাঙলে sell করুন।";
+    } else if(!isAboveEMA&&isBearMACD){
+      t1=+(p*1.04).toFixed(2);t2=+(p*1.08).toFixed(2);t3=null;
+      sellT1=50;sellT2=40;sellT3=10;risk="🔴 HIGH";priority=5;
+      buySignal="🔴 Downtrend — এড়িয়ে চলুন";buyZone="EMA20 (৳"+ema20.toFixed(2)+") এর উপরে গেলে";
+      buyStr="Price < EMA20 (৳"+ema20.toFixed(2)+"). MACD "+macd.toFixed(2)+" Bearish। Downtrend এ আছে।";
+      sellStr="এখনই sell করুন। EMA20 এর নিচে থাকলে further drop হতে পারে।";
+    } else {
+      t1=+(p*1.05).toFixed(2);t2=+(p*1.10).toFixed(2);t3=null;
+      sellT1=40;sellT2=45;sellT3=15;risk="🟡 MEDIUM";priority=3;
+      buySignal="🟡 Sideways — অপেক্ষা করুন";buyZone="৳"+(p*0.96).toFixed(2)+"-৳"+(p*0.98).toFixed(2);
+      buyStr="Sideways market। RSI "+rsi.toFixed(0)+" (neutral)। BB Lower এ কিনুন, BB Upper এ বেচুন। EMA20: ৳"+ema20.toFixed(2)+"।";
+      sellStr="Range এর উপরে (BB Upper বা Resistance) গেলে sell করুন।";
+    }
+    // Safety clamp T1<T2<T3
+    t1=Math.max(+(p*1.025).toFixed(2),t1);
+    t2=Math.max(+(t1*1.04).toFixed(2),t2);
+    if(t3) t3=Math.max(+(t2*1.04).toFixed(2),t3);
+    if(s.circuit&&t1>=s.circuit*0.97) t1=+(s.circuit*0.94).toFixed(2);
+    if(s.circuit&&t2>=s.circuit) t2=+(s.circuit*0.97).toFixed(2);
+    if(t2<=t1) t2=+(t1*1.04).toFixed(2);
+    return{t1,t2,t3,sl,sellT1,sellT2,sellT3,buySignal,buyZone,buyStr,sellStr,risk,holding:"Natural",holdNote,priority,maSignal,isBreakoutVol,isAboveEMA,isAboveSMA,hasConflict,conflictNote};
+  }
+
+  // ── Timed Mode (days > 0) ────────────────────────────────────
+  days=days||7;
   const dayMult=days<=5?0.04:days<=10?0.07:days<=21?0.12:0.20;
-  const sl=+(s.price*0.93).toFixed(2);
+  const sl=+(p*0.93).toFixed(2);
   let t1,t2,t3,sellT1,sellT2,sellT3,buySignal,buyZone,buyStr,sellStr,risk,priority;
 
   if(isPump){
-    t1=+(s.price*(1+dayMult*0.6)).toFixed(2);t2=+(s.price*(1+dayMult)).toFixed(2);t3=null;
-    sellT1=60;sellT2=35;sellT3=5;risk="🔴 HIGH";priority=4;
+    t1=+(p*(1+dayMult*0.6)).toFixed(2);t2=+(p*(1+dayMult)).toFixed(2);t3=null;
+    sellT1=60;sellT2=35;sellT3=5;risk="🔴 HIGH";priority=5;
     buySignal="🔴 কিনবেন না";buyZone="—";
-    buyStr="Pump pattern! RSI "+s.rsi.toFixed(0)+" — অতিরিক্ত উপরে।";
-    sellStr="⚠️ Pump! T1 এ "+sellT1+"% — দেরি করবেন না। Circuit "+s.circuit+" এর আগেই বের হন।";
+    buyStr="Pump pattern! RSI "+rsi.toFixed(0)+", Vol "+volM+"M। "+days+"d এ আটকে যাওয়ার risk আছে।";
+    sellStr="⚠️ Pump! T1 এ "+sellT1+"% sell করুন। Circuit "+s.circuit+" এর আগেই বের হন।";
+  } else if(hasConflict){
+    t1=+(p*(1+dayMult*0.7)).toFixed(2);t2=+(p*(1+dayMult*1.2)).toFixed(2);t3=null;
+    sellT1=40;sellT2=50;sellT3=10;risk="🟡 MEDIUM";priority=3;
+    buySignal="⚠️ Mixed Signal";buyZone="৳"+(p*0.97).toFixed(2)+"-৳"+p;
+    buyStr=conflictNote;
+    sellStr="Mixed signal — T1 এ "+sellT1+"% নিন, বাকি hold। Conflict resolve হলে strategy update করুন।";
   } else if(isOversold&&isBullMACD){
-    t1=+(s.price*(1+dayMult*1.1)).toFixed(2);t2=+(s.price*(1+dayMult*1.7)).toFixed(2);t3=+(s.price*(1+dayMult*2.5)).toFixed(2);
+    t1=+(p*(1+dayMult*1.1)).toFixed(2);t2=+(p*(1+dayMult*1.7)).toFixed(2);t3=+(p*(1+dayMult*2.5)).toFixed(2);
     sellT1=25;sellT2=45;sellT3=30;risk="🟢 LOW";priority=1;
-    buySignal="🚀 এখনই কিনুন";buyZone="৳"+(s.price*0.98).toFixed(2)+"-৳"+s.price;
-    buyStr="Oversold bounce RSI "+s.rsi.toFixed(0)+" + MACD bullish"+(isBreakoutVol?" + Breakout Volume!":"")+". Budget ৬০% এখন।";
-    sellStr="Bottom থেকে উঠছে — T2 এ "+sellT2+"% রাখুন। Trailing SL active!";
+    buySignal="🚀 এখনই কিনুন";buyZone="৳"+(p*0.98).toFixed(2)+"-৳"+p;
+    buyStr="RSI "+rsi.toFixed(0)+" Oversold + MACD "+macd.toFixed(2)+" Bullish"+(isBreakoutVol?" + Volume Breakout "+volM+"M!":"")+". "+days+"d এ strong return সম্ভব।";
+    sellStr="Bottom bouncing — T2 এ "+sellT2+"% রাখুন। T1 hit হলে SL buyRate এ move করুন।";
   } else if(isFundStrong&&isUnderval&&days>10){
-    t1=+(s.price*(1+dayMult*0.9)).toFixed(2);t2=+(s.price*(1+dayMult*1.5)).toFixed(2);t3=+(s.nav*0.75).toFixed(2);
+    t1=+(p*(1+dayMult*0.9)).toFixed(2);t2=+(p*(1+dayMult*1.5)).toFixed(2);t3=+(s.nav*0.75).toFixed(2);
     sellT1=20;sellT2=35;sellT3=45;risk="🟢 LOW";priority=2;
-    buySignal="✅ Long term Buy";buyZone="৳"+(s.price*0.97).toFixed(2)+"-৳"+s.price;
-    buyStr="P/E "+s.pe+" + NAV "+s.nav+(isAboveEMA?" + EMA20 above":"")+". "+days+"+ দিনের জন্য excellent।";
-    sellStr="Fundamental strong — T3 পর্যন্ত ধরুন ("+sellT3+"%)। NAV target ৳"+t3+"।";
+    buySignal="✅ Long term Buy";buyZone="৳"+(p*0.97).toFixed(2)+"-৳"+p;
+    buyStr="P/E "+s.pe+" + NAV "+s.nav+(isAboveEMA?" + EMA20 above":"")+". "+days+"d+ এর জন্য excellent position।";
+    sellStr="Fundamental strong — T3 (NAV target ৳"+(s.nav*0.75).toFixed(2)+") পর্যন্ত ধরুন।";
   } else if(isOverbought){
-    t1=+(s.price*(1+dayMult*0.5)).toFixed(2);t2=s.circuit?+(s.circuit*0.97).toFixed(2):+(s.price*(1+dayMult*0.9)).toFixed(2);t3=null;
-    sellT1=60;sellT2=35;sellT3=5;risk="🟡 MEDIUM";priority=4;
-    buySignal="🟡 অপেক্ষা করুন";buyZone="RSI "+(s.rsi-15).toFixed(0)+" এ নামলে";
-    buyStr="RSI "+s.rsi.toFixed(0)+" — Overbought। RSI ৫০ এ নামলে এবং EMA20 support এ কিনুন।";
-    sellStr="Overbought — T1 এ "+sellT1+"% নিন।"+(s.circuit?" Circuit "+s.circuit+" এর আগেই বের হন!":"");
+    t1=+(p*(1+dayMult*0.5)).toFixed(2);t2=s.circuit?+(s.circuit*0.97).toFixed(2):+(p*(1+dayMult*0.9)).toFixed(2);t3=null;
+    sellT1=60;sellT2=35;sellT3=5;risk="🟠 MEDIUM-HIGH";priority=4;
+    buySignal="🟡 অপেক্ষা করুন";buyZone="RSI "+(rsi-15).toFixed(0)+" নামলে";
+    buyStr="RSI "+rsi.toFixed(0)+" Overbought। "+conflictNote+" RSI ৫০ এ নামলে এবং EMA20 (৳"+ema20.toFixed(2)+") support এ কিনুন।";
+    sellStr="Overbought — T1 এ "+sellT1+"% নিন।"+(s.circuit?" Circuit ৳"+s.circuit+" এর আগেই বের হন!":"");
   } else if(isBreakoutVol&&isBullMACD){
-    t1=+(s.price*(1+dayMult*1.0)).toFixed(2);t2=+(s.price*(1+dayMult*1.6)).toFixed(2);t3=+(s.price*(1+dayMult*2.2)).toFixed(2);
+    t1=+(p*(1+dayMult*1.0)).toFixed(2);t2=+(p*(1+dayMult*1.6)).toFixed(2);t3=+(p*(1+dayMult*2.2)).toFixed(2);
     sellT1=30;sellT2=45;sellT3=25;risk="🟢 LOW-MED";priority=1;
-    buySignal="🚀 Volume Breakout";buyZone="৳"+(s.price*0.99).toFixed(2)+"-৳"+s.price;
-    buyStr="Breakout Volume ("+volM.toFixed(1)+"M vs VMA "+((vma20||0)/1000000).toFixed(1)+"M)! MACD bullish"+(isAboveEMA?" + EMA20 above":"")+". Strong signal!";
-    sellStr="Volume breakout — "+days+" দিনে T2 সম্ভব। T1 এ trailing SL set করুন।";
+    buySignal="🚀 Volume Breakout";buyZone="৳"+(p*0.99).toFixed(2)+"-৳"+p;
+    buyStr="Volume "+volM+"M vs VMA "+((vma20)/1000000).toFixed(1)+"M ("+((s.vol/vma20).toFixed(1))+"x)! MACD "+macd.toFixed(2)+" bullish"+(isAboveEMA?" + EMA20 above":"")+".";
+    sellStr="Breakout — "+days+"d এ T2 সম্ভব। T1 hit হলে SL buyRate এ move করুন।";
   } else if(isBullMACD&&isAboveEMA){
-    t1=+(s.price*(1+dayMult*0.85)).toFixed(2);t2=+(s.price*(1+dayMult*1.4)).toFixed(2);t3=+(s.price*(1+dayMult*1.9)).toFixed(2);
+    t1=+(p*(1+dayMult*0.85)).toFixed(2);t2=+(p*(1+dayMult*1.4)).toFixed(2);t3=+(p*(1+dayMult*1.9)).toFixed(2);
     sellT1=35;sellT2=40;sellT3=25;risk="🟢 LOW-MED";priority=2;
-    buySignal="✅ কিনতে পারেন";buyZone="৳"+(s.price*0.99).toFixed(2)+"-৳"+s.price;
-    buyStr="MACD "+s.macd.toFixed(1)+" + Price > EMA20"+(isAboveSMA?" + SMA50 above":"")+". Trend bullish।";
-    sellStr="Trend following — "+days+" দিনে T1-T2 target। RSI ৬৮ হলে বের হন।";
+    buySignal="✅ কিনতে পারেন";buyZone="৳"+(p*0.99).toFixed(2)+"-৳"+p;
+    buyStr="MACD "+macd.toFixed(2)+" + Price > EMA20 (৳"+ema20.toFixed(2)+")"+(isAboveSMA?" + SMA50 (৳"+sma50.toFixed(2)+") above":"")+". "+days+"d uptrend।";
+    sellStr="Trend — "+days+"d এ T1-T2 target। RSI 68+ হলে বের হন।";
   } else if(isBullMACD){
-    t1=+(s.price*(1+dayMult*0.8)).toFixed(2);t2=+(s.price*(1+dayMult*1.3)).toFixed(2);t3=+(s.price*(1+dayMult*1.8)).toFixed(2);
+    t1=+(p*(1+dayMult*0.8)).toFixed(2);t2=+(p*(1+dayMult*1.3)).toFixed(2);t3=+(p*(1+dayMult*1.8)).toFixed(2);
     sellT1=35;sellT2=40;sellT3=25;risk="🟡 MEDIUM";priority=2;
-    buySignal="✅ কিনতে পারেন";buyZone="৳"+(s.price*0.99).toFixed(2)+"-৳"+s.price;
-    buyStr="MACD "+s.macd.toFixed(1)+" bullish। EMA20 (৳"+(s.ema20||"-")+") support এ রাখুন।";
-    sellStr="MACD driven — "+days+" দিনে T1-T2 target।";
+    buySignal="✅ কিনতে পারেন";buyZone="৳"+(p*0.99).toFixed(2)+"-৳"+p;
+    buyStr="MACD "+macd.toFixed(2)+" bullish। EMA20 (৳"+ema20.toFixed(2)+") support এ রাখুন। "+days+"d target।";
+    sellStr="MACD driven — T1 এ "+sellT1+"% নিন। EMA20 ভাঙলে exit।";
   } else {
-    t1=+(s.price*(1+dayMult*0.8)).toFixed(2);t2=+(s.price*(1+dayMult*1.3)).toFixed(2);t3=null;
+    t1=+(p*(1+dayMult*0.8)).toFixed(2);t2=+(p*(1+dayMult*1.3)).toFixed(2);t3=null;
     sellT1=40;sellT2=45;sellT3=15;risk="🟡 MEDIUM";priority=3;
-    buySignal="🟡 অপেক্ষা করুন";buyZone="৳"+(s.price*0.95).toFixed(2)+"-৳"+(s.price*0.98).toFixed(2);
-    buyStr="Sideways। EMA20: ৳"+(s.ema20||"-")+" / SMA50: ৳"+(s.sma50||"-")+". Breakout এর জন্য অপেক্ষা করুন।";
+    buySignal="🟡 অপেক্ষা করুন";buyZone="৳"+(p*0.95).toFixed(2)+"-৳"+(p*0.98).toFixed(2);
+    buyStr="Sideways। EMA20: ৳"+ema20.toFixed(2)+" / SMA50: ৳"+sma50.toFixed(2)+". Volume বাড়লে এবং EMA20 এর উপরে গেলে কিনুন।";
     sellStr="Sideways — T1 এ "+sellT1+"% নিন। Trailing SL maintain করুন।";
   }
 
-  if(s.circuit&&t2>=s.circuit){t2=+(s.circuit*0.97).toFixed(2);sellStr+=" | Circuit "+s.circuit+" এর আগেই বের হন!";}
-  const holdNote=portShares>0?"আপনার "+portShares.toLocaleString()+" shares":"";
-  const maSignal=(isAboveEMA&&isAboveSMA)?"🟢 EMA+SMA উপরে":isAboveEMA?"🟡 EMA উপরে":isAboveSMA?"🟡 SMA উপরে":"🔴 MA এর নিচে";
-  return{t1,t2,t3,sl,sellT1,sellT2,sellT3,buySignal,buyZone,buyStr,sellStr,risk,holding:days+" দিন",holdNote,priority,maSignal,isBreakoutVol,isAboveEMA,isAboveSMA};
+  // ── SAFETY: T1 < T2 < T3, minimum gaps enforced ─────────────
+  const minT1=+(p*1.025).toFixed(2);
+  const minT2=+(p*1.06).toFixed(2);
+  t1=Math.max(minT1,t1);
+  t2=Math.max(Math.max(minT2,+(t1*1.04).toFixed(2)),t2);
+  if(t3) t3=Math.max(+(t2*1.04).toFixed(2),t3);
+  // Circuit ceiling
+  if(s.circuit){
+    if(t1>=s.circuit*0.97) t1=+(s.circuit*0.92).toFixed(2);
+    if(t2>=s.circuit) t2=+(s.circuit*0.97).toFixed(2);
+    if(t2<=t1) t2=+(t1*1.04).toFixed(2);
+    if(t3&&t3>=s.circuit) t3=+(s.circuit*0.97).toFixed(2);
+    if(t3&&t3<=t2) t3=+(t2*1.04).toFixed(2);
+    if(t2>=s.circuit) sellStr+=" | Circuit ৳"+s.circuit+" এর আগেই বের হন!";
+  }
+
+  return{t1,t2,t3,sl,sellT1,sellT2,sellT3,buySignal,buyZone,buyStr,sellStr,risk,holding:days+" দিন",holdNote,priority,maSignal,isBreakoutVol,isAboveEMA,isAboveSMA,hasConflict,conflictNote};
 }
 
 // ── Score — EMA20, SMA50, VMA20 যোগ হয়েছে ────────────────────────────
@@ -197,7 +360,7 @@ const btn=(color,active,small)=>{color=color||C.accent;return{padding:small?"4px
 function PasteModal({onApply,onClose,stockName}){
   const [code,setCode]=useState("");const [err,setErr]=useState("");
   const apply=()=>{setErr("");try{const d=JSON.parse(code.trim());if(!d.name&&stockName)d.name=stockName;onApply(d);setCode("");onClose();}catch{setErr("❌ JSON format ঠিক নেই।");}};
-  const ex='{"name":"'+(stockName||"STOCKNAME")+'","price":28.5,"rsi":62,"macd":0.8,"eps":1.5,"pe":19,"nav":22,"div":10,"vol":3500000,"vma20":2000000,"ema20":27.2,"sma50":26.5,"ret6m":18,"inst":8,"circuit":31.5,"cat":"A","sector":"Textile"}';
+  const ex='{"name":"'+(stockName||"STOCKNAME")+'","price":52.5,"eps":2.85,"pe":24.31,"nav":35.37,"div":18,"rsi":53.51,"macd":-0.2,"vol":5143123,"vma20":3381708,"ema20":52.4,"sma50":50.8,"bb_upper":58.6,"bb_lower":46.3,"support1":46.3,"resistance1":56.3,"circuit":56.3,"ret6m":23,"inst":10.23,"cat":"A","sector":"Services & Real Estate","trend":"consolidation","analysisNote":{"trend":"২০২৪-২০২৫ uptrend, এখন consolidation","bb":"BB Median এ আছে","rsiNote":"RSI 53 neutral","macdNote":"MACD -0.2 সামান্য bearish","volumeNote":"Volume VMA 1.5x","fundamental":"EPS 2.85, P/E 24.31, NAV 35.37","strategy":"৳৪৮-৪৯ এ কিনুন, Target ৳৫৬.৩","chartPeriod":"2024-2026 Daily"}}';
   return(
     <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:C.card,border:"1px solid "+C.purple,borderRadius:16,padding:24,width:"100%",maxWidth:540}}>
@@ -343,29 +506,542 @@ function BuyRankingPanel({stocks,port,days,onClose}){
   );
 }
 
+// ── Indicator Explanation Database ───────────────────────────────────
+const INDICATOR_EXPLAIN = {
+  "RSI": {
+    what: "Relative Strength Index — ০ থেকে ১০০ এর মধ্যে থাকে।",
+    dse: "DSE তে RSI < 30 = Oversold (কিনুন), RSI > 70 = Overbought (বেচুন)। Bangladesh market এ RSI 45-65 = healthy zone।",
+    use: "Short-term swing trade এর জন্য সবচেয়ে reliable indicator DSE তে।"
+  },
+  "MACD": {
+    what: "Moving Average Convergence Divergence — দুটো EMA এর পার্থক্য।",
+    dse: "MACD > 0 ও বাড়ছে = Buy। MACD < 0 ও কমছে = Sell। DSE তে MACD crossover অনেক accurate signal দেয়।",
+    use: "Trend direction confirm করতে RSI এর সাথে use করুন।"
+  },
+  "BB": {
+    what: "Bollinger Bands — Price এর উপরে/নিচে ২টি band।",
+    dse: "DSE sideways stock এর জন্য সেরা। Lower band ছুঁলে কিনুন, Upper band ছুঁলে বেচুন।",
+    use: "Sideways market এ সবচেয়ে effective। Trending market এ কম কাজ করে।"
+  },
+  "EMA": {
+    what: "Exponential Moving Average — সাম্প্রতিক price কে বেশি গুরুত্ব দেয়।",
+    dse: "Price > EMA20 = Short-term bullish। Price > EMA50 = Medium-term bullish। DSE big investors EMA use করেন।",
+    use: "Support/Resistance level হিসেবে কাজ করে। EMA20 ভাঙলে exit করুন।"
+  },
+  "Stoch": {
+    what: "Stochastic Oscillator — Recent high/low এর তুলনায় current price।",
+    dse: "Stoch < 20 = Oversold (buy signal), Stoch > 80 = Overbought (sell signal)।",
+    use: "RSI এর সাথে একসাথে দেখলে false signal কমে। Short-term entry/exit এর জন্য ভালো।"
+  },
+  "Williams %R": {
+    what: "Williams Percent Range — Stochastic এর মতোই, কিন্তু উল্টো।",
+    dse: "W%R -80 এর নিচে = Oversold, -20 এর উপরে = Overbought। DSE তে fast reversal detect করে।",
+    use: "Very short-term (1-5 দিন) trade এর জন্য ভালো signal দেয়।"
+  },
+  "CCI": {
+    what: "Commodity Channel Index — Normal থেকে কতটা দূরে আছে।",
+    dse: "CCI < -100 = Oversold/Undervalued, CCI > +100 = Overbought। DSE তে trend strength মাপে।",
+    use: "Breakout confirm করতে ভালো। CCI 0 cross করলে trend change হতে পারে।"
+  },
+  "Volume": {
+    what: "কতগুলো শেয়ার trade হয়েছে — সবচেয়ে গুরুত্বপূর্ণ indicator।",
+    dse: "DSE তে Volume সবকিছুর আগে। High volume + price up = strong buy। High volume + price down = strong sell। Low volume = fake signal।",
+    use: "অন্য সব indicator Volume দিয়ে confirm করুন। Volume ছাড়া signal বিশ্বাস করবেন না।"
+  },
+  "VWAP": {
+    what: "Volume Weighted Average Price — Institutional buyers এর average price।",
+    dse: "Price < VWAP = Institutional buy zone (সস্তা)। Price > VWAP = উপরে আছে (সতর্ক)।",
+    use: "Big investors (mutual fund, institution) কোথায় কিনছেন সেটা বোঝা যায়।"
+  },
+};
+
+function IndicatorCards({signals}){
+  const [expanded,setExpanded]=useState({});
+  const toggle=(i)=>setExpanded(p=>({...p,[i]:!p[i]}));
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {signals.map((sig,i)=>{
+        const exp=INDICATOR_EXPLAIN[sig.name]||{what:"",dse:"",use:""};
+        const isOpen=expanded[i];
+        return(
+          <div key={i} style={{background:"#070D1A",borderRadius:10,border:"1px solid "+sig.color+"44",overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",cursor:"pointer"}} onClick={()=>toggle(i)}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                  <span style={{fontWeight:800,color:"#E8EAF0",fontSize:13}}>{sig.name}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:sig.color,background:sig.color+"22",borderRadius:5,padding:"2px 8px"}}>{sig.signal}</span>
+                </div>
+                <div style={{fontSize:11,color:"#7A8FA0",lineHeight:1.5}}>{sig.detail}</div>
+              </div>
+              <div style={{width:24,height:24,borderRadius:12,background:isOpen?sig.color+"44":"#1A2D4A",display:"flex",alignItems:"center",justifyContent:"center",color:isOpen?sig.color:"#4A6080",fontWeight:800,fontSize:14,flexShrink:0,transition:"all 0.2s"}}>
+                {isOpen?"−":"+"}
+              </div>
+            </div>
+            {isOpen&&(
+              <div style={{padding:"0 12px 12px",borderTop:"1px solid "+sig.color+"22"}}>
+                {exp.what&&<div style={{marginTop:8}}>
+                  <div style={{fontSize:10,color:sig.color,fontWeight:700,marginBottom:2}}>📖 কী এটা?</div>
+                  <div style={{fontSize:11,color:"#B0C0D0",lineHeight:1.6}}>{exp.what}</div>
+                </div>}
+                {exp.dse&&<div style={{marginTop:8}}>
+                  <div style={{fontSize:10,color:"#FFC107",fontWeight:700,marginBottom:2}}>🇧🇩 DSE তে কীভাবে কাজ করে?</div>
+                  <div style={{fontSize:11,color:"#B0C0D0",lineHeight:1.6}}>{exp.dse}</div>
+                </div>}
+                {exp.use&&<div style={{marginTop:8}}>
+                  <div style={{fontSize:10,color:"#00C896",fontWeight:700,marginBottom:2}}>💡 কীভাবে ব্যবহার করবেন?</div>
+                  <div style={{fontSize:11,color:"#B0C0D0",lineHeight:1.6}}>{exp.use}</div>
+                </div>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Chart Modal ──────────────────────────────────────────────────────
+function ChartModal({ stock, candles, chartType, setChartType, onClose, srLevels, taResult, chartLoading }) {
+  const W = Math.min(window.innerWidth - 32, 700);
+  const H = 320;
+  const PAD = { top: 20, right: 60, bottom: 40, left: 10 };
+  const CW = W - PAD.left - PAD.right;
+  const CH = H - PAD.top - PAD.bottom;
+
+  if (!candles || candles.length === 0) {
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#0F1923",borderRadius:16,padding:24,width:"100%",maxWidth:400,textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:12}}>📊</div>
+          <div style={{color:"#E8EAF0",fontSize:14,marginBottom:8}}>{stock.name} Chart লোড হচ্ছে...</div>
+          <div style={{color:"#4A6080",fontSize:12}}>DSE থেকে ৬০ দিনের data আনছি</div>
+          <div style={{marginTop:12,height:4,background:"#1A2D4A",borderRadius:2}}><div style={{height:"100%",width:"60%",background:"#00C896",borderRadius:2,animation:"none"}}/></div>
+          <button onClick={onClose} style={{marginTop:16,padding:"8px 20px",background:"#1A2D4A",border:"none",borderRadius:8,color:"#4A6080",cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>বন্ধ করুন</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Price range
+  const allHighs = candles.map(c => c.high);
+  const allLows = candles.map(c => c.low);
+  let priceMin = Math.min(...allLows);
+  let priceMax = Math.max(...allHighs);
+
+  // Include SR levels in range
+  if (srLevels) {
+    srLevels.supports.forEach(s => { priceMin = Math.min(priceMin, s.price); });
+    srLevels.resistances.forEach(r => { priceMax = Math.max(priceMax, r.price); });
+  }
+  const priceRange = priceMax - priceMin || 1;
+  const padding = priceRange * 0.05;
+  priceMin -= padding; priceMax += padding;
+
+  const toY = (price) => CH - ((price - priceMin) / (priceMax - priceMin)) * CH + PAD.top;
+  const toX = (i) => (i / (candles.length - 1)) * CW + PAD.left;
+  const barW = Math.max(2, Math.floor(CW / candles.length) - 1);
+
+  // Build SVG paths
+  const linePath = candles.map((c, i) => (i === 0 ? "M" : "L") + toX(i).toFixed(1) + "," + toY(c.close).toFixed(1)).join(" ");
+
+  // Price labels
+  const priceTicks = 5;
+  const priceLabels = Array.from({length: priceTicks}, (_, i) => {
+    const price = priceMin + (priceMax - priceMin) * i / (priceTicks - 1);
+    return { price: +price.toFixed(1), y: toY(price) };
+  });
+
+  // Date labels (every ~10 candles)
+  const dateLabels = candles.filter((_, i) => i % Math.ceil(candles.length / 5) === 0).map((c, i, arr) => ({
+    date: c.date ? c.date.slice(5) : "",
+    x: toX(candles.indexOf(c))
+  }));
+
+  const currentPrice = candles[candles.length - 1].close;
+  const priceColor = currentPrice >= candles[0].close ? "#00C896" : "#F44336";
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
+      <div style={{background:"#0F1923",borderRadius:16,padding:16,width:"100%",maxWidth:720,marginTop:8}}>
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>{stock.name} <span style={{fontSize:13,color:"#4A6080"}}>[{stock.cat}]</span></div>
+            <div style={{fontSize:12,color:"#4A6080"}}>{stock.sector} · ৳{currentPrice} · {candles.length} দিনের data</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {["candlestick","line","ohlc"].map(t => (
+              <button key={t} onClick={() => setChartType(t)}
+                style={{padding:"4px 10px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,
+                  background: chartType===t ? "#00C896" : "#1A2D4A",
+                  color: chartType===t ? "#fff" : "#4A6080",fontFamily:"inherit"}}>
+                {t==="candlestick"?"🕯️":t==="line"?"📈":"📊"}
+              </button>
+            ))}
+            <button onClick={onClose} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#F44336",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:11,fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+
+        {/* TA Master Signal */}
+        {taResult && (
+          <div style={{background:taResult.masterBg,border:"2px solid "+taResult.masterColor+"88",borderRadius:12,padding:"12px 16px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:6}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,fontSize:17,color:taResult.masterColor}}>{taResult.masterSignal}</div>
+                <div style={{fontSize:12,color:"#E8EAF0",marginTop:4,lineHeight:1.6}}>{taResult.actionDetail}</div>
+              </div>
+              <div style={{textAlign:"center",background:"#070D1A",borderRadius:10,padding:"8px 14px"}}>
+                <div style={{fontSize:26,fontWeight:800,color:taResult.compositeScore>=0?"#00C896":"#F44336"}}>{taResult.compositeScore>0?"+":""}{taResult.compositeScore}</div>
+                <div style={{fontSize:10,color:"#4A6080"}}>Composite Score</div>
+                <div style={{fontSize:10,color:"#4A6080",marginTop:2}}>Buy {taResult.buyScore.toFixed(0)} | Sell {taResult.sellScore.toFixed(0)}</div>
+              </div>
+            </div>
+            {taResult.isSideways&&(
+              <div style={{background:"#FFC10718",borderRadius:6,padding:"6px 10px",fontSize:11,color:"#FFC107",fontWeight:700}}>
+                📊 Sideways Range: {taResult.rangeWidth.toFixed(1)}% — BB strategy সেরা। Lower এ কিনুন, Upper এ বেচুন।
+              </div>
+            )}
+            {taResult.isTrending&&(
+              <div style={{background:"#00C89618",borderRadius:6,padding:"6px 10px",fontSize:11,color:"#00C896",fontWeight:700}}>
+                📈 Trending Market — EMA20 ও MACD follow করুন। Trailing SL রাখুন।
+              </div>
+            )}
+            {taResult.signals&&taResult.signals.some(s=>s.signal.includes("SELL")&&s.score>0)&&taResult.signals.some(s=>s.signal.includes("BUY")&&s.score>0)&&(
+              <div style={{background:"#FF980018",borderRadius:6,padding:"6px 10px",marginTop:6,fontSize:11,color:"#FF9800"}}>
+                ⚠️ Mixed Signal — কিছু indicator BUY, কিছু SELL বলছে। নিচে প্রতিটির বিস্তারিত দেখুন।
+              </div>
+            )}
+            <div style={{marginTop:8,fontSize:11,color:"#4A6080"}}>
+              📌 Data source: {taResult.indicators&&taResult.indicators.rsi?"আপনার enter করা RSI/MACD/EMA + Bollinger Bands":"Calculated from chart"}
+            </div>
+          </div>
+        )}
+
+        {/* Sell Signal Banner */}
+        {srLevels && srLevels.sellSignal && (
+          <div style={{background:"#F4433622",border:"1px solid #F44336",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:13,color:"#F44336",fontWeight:700,textAlign:"center"}}>
+            {srLevels.sellSignal}
+          </div>
+        )}
+
+        {/* Chart SVG */}
+        <div style={{background:"#070D1A",borderRadius:10,padding:"4px 0",overflowX:"auto"}}>
+          <svg width={W} height={H} style={{display:"block"}}>
+            {/* Grid lines */}
+            {priceLabels.map((tick, i) => (
+              <g key={i}>
+                <line x1={PAD.left} y1={tick.y} x2={PAD.left+CW} y2={tick.y} stroke="#1A2D4A" strokeWidth="1" strokeDasharray="3,3"/>
+                <text x={PAD.left+CW+4} y={tick.y+4} fontSize="9" fill="#4A6080">{tick.price}</text>
+              </g>
+            ))}
+
+            {/* Date labels */}
+            {dateLabels.map((dl, i) => (
+              <text key={i} x={dl.x} y={H-6} fontSize="9" fill="#4A6080" textAnchor="middle">{dl.date}</text>
+            ))}
+
+            {/* Support Levels */}
+            {srLevels && srLevels.supports.map((s, i) => {
+              const y = toY(s.price);
+              const isStrong = srLevels.strongSupport && Math.abs(srLevels.strongSupport.price - s.price) < 0.01;
+              return (
+                <g key={"sup"+i}>
+                  <line x1={PAD.left} y1={y} x2={PAD.left+CW} y2={y} stroke={isStrong?"#00C896":"#00C89666"} strokeWidth={isStrong?2:1} strokeDasharray={isStrong?"":"5,3"}/>
+                  <rect x={PAD.left+CW-2} y={y-8} width={58} height={16} fill="#070D1A" rx="3"/>
+                  <text x={PAD.left+CW+2} y={y+4} fontSize="9" fill={isStrong?"#00C896":"#00C89699"} fontWeight={isStrong?"bold":"normal"}>
+                    {isStrong?"🟢S":"S"} ৳{s.price.toFixed(1)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Resistance Levels */}
+            {srLevels && srLevels.resistances.map((r, i) => {
+              const y = toY(r.price);
+              const isStrong = srLevels.strongResistance && Math.abs(srLevels.strongResistance.price - r.price) < 0.01;
+              return (
+                <g key={"res"+i}>
+                  <line x1={PAD.left} y1={y} x2={PAD.left+CW} y2={y} stroke={isStrong?"#F44336":"#F4433666"} strokeWidth={isStrong?2:1} strokeDasharray={isStrong?"":"5,3"}/>
+                  <rect x={PAD.left+CW-2} y={y-8} width={58} height={16} fill="#070D1A" rx="3"/>
+                  <text x={PAD.left+CW+2} y={y+4} fontSize="9" fill={isStrong?"#F44336":"#F4433699"} fontWeight={isStrong?"bold":"normal"}>
+                    {isStrong?"🔴R":"R"} ৳{r.price.toFixed(1)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Current price line */}
+            <line x1={PAD.left} y1={toY(currentPrice)} x2={PAD.left+CW} y2={toY(currentPrice)} stroke={priceColor} strokeWidth="1" strokeDasharray="4,2" opacity="0.6"/>
+
+            {/* Chart based on type */}
+            {chartType==="line" && (
+              <path d={linePath} fill="none" stroke="#00C896" strokeWidth="2"/>
+            )}
+
+            {chartType==="candlestick" && candles.map((c, i) => {
+              const x = toX(i);
+              const openY = toY(c.open);
+              const closeY = toY(c.close);
+              const highY = toY(c.high);
+              const lowY = toY(c.low);
+              const isBull = c.close >= c.open;
+              const color = isBull ? "#00C896" : "#F44336";
+              const bodyTop = Math.min(openY, closeY);
+              const bodyH = Math.max(1, Math.abs(closeY - openY));
+              return (
+                <g key={i}>
+                  <line x1={x} y1={highY} x2={x} y2={lowY} stroke={color} strokeWidth="1"/>
+                  <rect x={x-barW/2} y={bodyTop} width={barW} height={bodyH} fill={color} opacity="0.9"/>
+                </g>
+              );
+            })}
+
+            {chartType==="ohlc" && candles.map((c, i) => {
+              const x = toX(i);
+              const isBull = c.close >= c.open;
+              const color = isBull ? "#00C896" : "#F44336";
+              return (
+                <g key={i}>
+                  <line x1={x} y1={toY(c.high)} x2={x} y2={toY(c.low)} stroke={color} strokeWidth="1.5"/>
+                  <line x1={x-barW} y1={toY(c.open)} x2={x} y2={toY(c.open)} stroke={color} strokeWidth="1.5"/>
+                  <line x1={x} y1={toY(c.close)} x2={x+barW} y2={toY(c.close)} stroke={color} strokeWidth="1.5"/>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+
+        {/* SR Summary */}
+        {srLevels && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:12}}>
+            <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
+              <div style={{fontWeight:700,color:"#00C896",marginBottom:8,fontSize:13}}>🟢 Support Levels</div>
+              {srLevels.supports.length===0 && <div style={{color:"#4A6080",fontSize:12}}>কোনো support নেই</div>}
+              {srLevels.supports.sort((a,b)=>b.price-a.price).map((s,i)=>{
+                const isStrong = srLevels.strongSupport && Math.abs(srLevels.strongSupport.price-s.price)<0.01;
+                return(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                    <span style={{color:isStrong?"#00C896":"#4A6080"}}>{isStrong?"⭐ Strong":"·"} ৳{s.price.toFixed(2)}</span>
+                    <span style={{color:"#4A6080"}}>{s.touches}x touch</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
+              <div style={{fontWeight:700,color:"#F44336",marginBottom:8,fontSize:13}}>🔴 Resistance Levels</div>
+              {srLevels.resistances.length===0 && <div style={{color:"#4A6080",fontSize:12}}>কোনো resistance নেই</div>}
+              {srLevels.resistances.sort((a,b)=>a.price-b.price).map((r,i)=>{
+                const isStrong = srLevels.strongResistance && Math.abs(srLevels.strongResistance.price-r.price)<0.01;
+                return(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                    <span style={{color:isStrong?"#F44336":"#4A6080"}}>{isStrong?"⭐ Strong":"·"} ৳{r.price.toFixed(2)}</span>
+                    <span style={{color:"#4A6080"}}>{r.touches}x touch</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TA Indicators Score Card */}
+        {taResult && taResult.signals && taResult.signals.length > 0 && (
+          <div style={{marginTop:12}}>
+            <div style={{fontWeight:700,color:"#E8EAF0",marginBottom:8,fontSize:13}}>📊 Technical Indicators Score Card</div>
+            <IndicatorCards signals={taResult.signals}/>
+
+            {/* Key Numbers */}
+            <div style={{background:"#070D1A",borderRadius:8,padding:10,marginTop:8}}>
+              <div style={{fontWeight:700,color:"#FFC107",marginBottom:6,fontSize:12}}>📈 Key Indicator Values</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:6}}>
+                {[
+                  ["RSI",taResult.indicators.rsi,taResult.indicators.rsi>70?"#F44336":taResult.indicators.rsi<30?"#00C896":"#FFC107"],
+                  ["EMA 20",taResult.indicators.ema20,"#4FC3F7"],
+                  ["EMA 50",taResult.indicators.ema50,"#4FC3F7"],
+                  ["BB Upper",taResult.indicators.bb?taResult.indicators.bb.upper:"-","#F44336"],
+                  ["BB Lower",taResult.indicators.bb?taResult.indicators.bb.lower:"-","#00C896"],
+                  ["Stoch K",taResult.indicators.stoch?taResult.indicators.stoch.k:"-",taResult.indicators.stoch&&taResult.indicators.stoch.k>80?"#F44336":taResult.indicators.stoch&&taResult.indicators.stoch.k<20?"#00C896":"#FFC107"],
+                  ["W%R",taResult.indicators.willR,taResult.indicators.willR<-80?"#00C896":taResult.indicators.willR>-20?"#F44336":"#4A6080"],
+                  ["CCI",taResult.indicators.cci,taResult.indicators.cci>100?"#F44336":taResult.indicators.cci<-100?"#00C896":"#4A6080"],
+                  ["VWAP",taResult.indicators.vwap,"#9C27B0"],
+                  ["ADX",taResult.indicators.adxData?taResult.indicators.adxData.adx:"-",taResult.indicators.adxData&&taResult.indicators.adxData.adx>25?"#00C896":"#4A6080"],
+                ].map(([label,val,color])=>(
+                  <div key={label} style={{background:"#0A1628",borderRadius:6,padding:"5px 8px",textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"#4A6080",marginBottom:2}}>{label}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:color}}>{val!==null&&val!==undefined?val:"-"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Buy/Sell Score Bars */}
+            <div style={{background:"#070D1A",borderRadius:8,padding:10,marginTop:8}}>
+              <div style={{fontWeight:700,color:"#E8EAF0",marginBottom:8,fontSize:12}}>⚖️ Buy vs Sell Pressure</div>
+              {(()=>{
+                const totalPts=(taResult.buyScore||0)+(taResult.sellScore||0)||1;
+                const buyPct=Math.round((taResult.buyScore||0)/totalPts*100);
+                const sellPct=Math.round((taResult.sellScore||0)/totalPts*100);
+                return(
+                  <div>
+                    <div style={{marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{fontSize:11,color:"#00C896",fontWeight:700}}>🟢 Buy Signal</span>
+                        <span style={{fontSize:11,color:"#00C896",fontWeight:700}}>{taResult.buyScore.toFixed(0)} pts ({buyPct}%)</span>
+                      </div>
+                      <div style={{height:10,background:"#1A2D4A",borderRadius:5}}>
+                        <div style={{height:"100%",width:buyPct+"%",background:"linear-gradient(90deg,#00C896,#4CAF50)",borderRadius:5,transition:"width 0.5s"}}/>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{fontSize:11,color:"#F44336",fontWeight:700}}>🔴 Sell Signal</span>
+                        <span style={{fontSize:11,color:"#F44336",fontWeight:700}}>{taResult.sellScore.toFixed(0)} pts ({sellPct}%)</span>
+                      </div>
+                      <div style={{height:10,background:"#1A2D4A",borderRadius:5}}>
+                        <div style={{height:"100%",width:sellPct+"%",background:"linear-gradient(90deg,#F44336,#FF9800)",borderRadius:5,transition:"width 0.5s"}}/>
+                      </div>
+                    </div>
+                    <div style={{marginTop:8,textAlign:"center",fontSize:12,fontWeight:700,color:buyPct>sellPct?"#00C896":sellPct>buyPct?"#F44336":"#FFC107"}}>
+                      {buyPct>sellPct?"✅ Overall: Buy Dominant":sellPct>buyPct?"🔴 Overall: Sell Dominant":"⚪ Overall: Balanced"}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Sell Signal Detail */}
+        {srLevels && srLevels.strongResistance && (
+          <div style={{marginTop:10,background:"#0A1628",borderRadius:8,padding:12,fontSize:12}}>
+            <div style={{fontWeight:700,color:"#FFC107",marginBottom:6}}>📊 Sell Signal Analysis</div>
+            <div style={{color:"#E8EAF0",lineHeight:1.8}}>
+              <div>Current Price: <span style={{color:"#4FC3F7",fontWeight:700}}>৳{currentPrice}</span></div>
+              {srLevels.strongResistance && <div>Strong Resistance: <span style={{color:"#F44336",fontWeight:700}}>৳{srLevels.strongResistance.price.toFixed(2)}</span> ({srLevels.strongResistance.touches}x tested)</div>}
+              {srLevels.strongSupport && <div>Strong Support: <span style={{color:"#00C896",fontWeight:700}}>৳{srLevels.strongSupport.price.toFixed(2)}</span> ({srLevels.strongSupport.touches}x tested)</div>}
+              {srLevels.strongResistance && <div style={{marginTop:4,color:"#FFC107"}}>Resistance থেকে দূরত্ব: <span style={{fontWeight:700}}>{((srLevels.strongResistance.price-currentPrice)/currentPrice*100).toFixed(1)}%</span></div>}
+              {srLevels.strongSupport && <div style={{color:"#00C896"}}>Support থেকে দূরত্ব: <span style={{fontWeight:700}}>{((currentPrice-srLevels.strongSupport.price)/currentPrice*100).toFixed(1)}%</span></div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── SellModal ─────────────────────────────────────────────────────────
 function SellModal({pos,onSell}){
   const [open,setOpen]=useState(false);
   const [sp,setSp]=useState(pos.currentPrice);
   const [ss,setSs]=useState(Math.floor(pos.shares*0.4));
-  if(!open)return <button onClick={()=>setOpen(true)} style={{background:"#00C89622",color:"#00C896",border:"none",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💰 Sell</button>;
-  const profit=(sp-pos.buyRate)*ss,comm=(ss*pos.buyRate+ss*sp)*COMM;
+  const [tab,setTab]=useState("custom"); // custom | t1 | t2
+
+  // Recalculate when open changes
+  const handleOpen=()=>{
+    setSp(pos.currentPrice);
+    setSs(Math.floor(pos.shares*0.4));
+    setTab("custom");
+    setOpen(true);
+  };
+
+  if(!open) return(
+    <button onClick={handleOpen}
+      style={{background:"#00C89622",color:"#00C896",border:"1px solid #00C89644",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+      💰 Sell
+    </button>
+  );
+
+  const profit=(sp-pos.buyRate)*ss;
+  const comm=(ss*pos.buyRate+ss*sp)*COMM;
+  const netPL=profit-comm;
+  const str=pos.str||{};
+  const t1=str.t1||pos.target1;
+  const t2=str.t2||pos.target2;
+  const sellT1Pct=str.sellT1||40;
+  const sellT2Pct=str.sellT2||40;
+
+  const setPreset=(price,pct)=>{
+    setSp(price);
+    setSs(Math.round(pos.shares*pct/100));
+    setTab("custom");
+  };
+
   return(
-    <div style={{position:"fixed",inset:0,zIndex:9998,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#0F1923",border:"1px solid #00C896",borderRadius:16,padding:24,width:"100%",maxWidth:360}}>
-        <div style={{fontWeight:800,fontSize:16,color:"#fff",marginBottom:14}}>💰 {pos.stock} Sell</div>
-        {[["Sell Price",sp,setSp],["Shares",ss,setSs]].map(([l,v,set])=>(
-          <div key={l} style={{marginBottom:12}}><div style={{fontSize:12,color:"#4A6080",marginBottom:3}}>{l}</div>
-            <input type="number" value={v} onChange={e=>set(+e.target.value)} style={{width:"100%",background:"#1A2D4A",border:"none",borderRadius:8,color:"#E8EAF0",padding:"8px 12px",fontSize:14,boxSizing:"border-box"}}/></div>
-        ))}
-        <div style={{background:"#070D1A",borderRadius:8,padding:12,marginBottom:14}}>
-          {[["Gross P&L","৳"+profit.toFixed(0),profit>=0?"#00C896":"#F44336"],["Commission","-৳"+comm.toFixed(0),"#FF9800"],["Net P&L","৳"+(profit-comm).toFixed(0),(profit-comm)>=0?"#00C896":"#F44336"]].map(([l,v,cl])=>(
-            <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}><span style={{color:"#4A6080"}}>{l}</span><span style={{fontWeight:700,color:cl}}>{v}</span></div>
+    <div style={{position:"fixed",inset:0,zIndex:9998,background:"rgba(0,0,0,0.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#0F1923",border:"1px solid #00C896",borderRadius:16,padding:20,width:"100%",maxWidth:380}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:16,color:"#fff"}}>💰 {pos.stock} Sell</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>{pos.broker} · {pos.shares.toLocaleString()} shares · Buy ৳{pos.buyRate}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:13,fontWeight:700,color:pos.pl>=0?"#00C896":"#F44336"}}>{pos.pl>=0?"+":""}৳{pos.pl.toFixed(0)}</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>Current ৳{pos.currentPrice}</div>
+          </div>
+        </div>
+
+        {/* Quick Preset Buttons */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          <button onClick={()=>setPreset(t1,sellT1Pct)}
+            style={{padding:"8px",background:"#00C89622",border:"1px solid #00C89644",borderRadius:8,color:"#00C896",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <div>🎯 T1 এ Sell</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>৳{t1} · {sellT1Pct}% ({Math.round(pos.shares*sellT1Pct/100)} shares)</div>
+          </button>
+          <button onClick={()=>setPreset(t2,sellT2Pct)}
+            style={{padding:"8px",background:"#FFC10722",border:"1px solid #FFC10744",borderRadius:8,color:"#FFC107",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <div>🚀 T2 এ Sell</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>৳{t2} · {sellT2Pct}% ({Math.round(pos.shares*sellT2Pct/100)} shares)</div>
+          </button>
+          <button onClick={()=>setPreset(pos.currentPrice,100)}
+            style={{padding:"8px",background:"#F4433622",border:"1px solid #F4433644",borderRadius:8,color:"#F44336",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <div>🔴 সব Sell</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>৳{pos.currentPrice} · সব {pos.shares.toLocaleString()} shares</div>
+          </button>
+          <button onClick={()=>setPreset(pos.currentPrice,50)}
+            style={{padding:"8px",background:"#FF980022",border:"1px solid #FF980044",borderRadius:8,color:"#FF9800",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+            <div>⚡ ৫০% Sell</div>
+            <div style={{fontSize:11,color:"#4A6080"}}>৳{pos.currentPrice} · {Math.round(pos.shares*0.5)} shares</div>
+          </button>
+        </div>
+
+        {/* Custom Input */}
+        <div style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:12}}>
+          <div style={{fontSize:11,color:"#4A6080",marginBottom:8,fontWeight:700}}>✏️ Custom পরিমাণ:</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {[["Sell Price (৳)",sp,setSp],["Shares",ss,setSs]].map(([l,v,set])=>(
+              <div key={l}>
+                <div style={{fontSize:11,color:"#4A6080",marginBottom:3}}>{l}</div>
+                <input type="number" value={v} onChange={e=>set(+e.target.value)}
+                  style={{width:"100%",background:"#1A2D4A",border:"none",borderRadius:8,color:"#E8EAF0",padding:"8px 10px",fontSize:14,boxSizing:"border-box",fontFamily:"inherit"}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* P&L Preview */}
+        <div style={{background:"#070D1A",borderRadius:8,padding:12,marginBottom:12}}>
+          {[
+            ["Gross P&L","৳"+profit.toFixed(0),profit>=0?"#00C896":"#F44336"],
+            ["Commission","-৳"+comm.toFixed(0),"#FF9800"],
+            ["Net P&L","৳"+netPL.toFixed(0),netPL>=0?"#00C896":"#F44336"],
+            ["Remaining",ss>=pos.shares?"শেষ ✅":(pos.shares-ss).toLocaleString()+" shares","#4A6080"],
+          ].map(([l,v,cl])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+              <span style={{color:"#4A6080"}}>{l}</span>
+              <span style={{fontWeight:700,color:cl}}>{v}</span>
+            </div>
           ))}
         </div>
+
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>{onSell(pos,sp,ss);setOpen(false);}} style={{flex:1,padding:"10px",background:"linear-gradient(135deg,#00C896,#0080FF)",border:"none",borderRadius:8,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>✅ Confirm</button>
-          <button onClick={()=>setOpen(false)} style={{padding:"10px 16px",background:"#1A2D4A",border:"none",borderRadius:8,color:"#4A6080",cursor:"pointer",fontWeight:700}}>বাতিল</button>
+          <button onClick={()=>{onSell(pos,sp,ss);setOpen(false);}}
+            style={{flex:1,padding:"11px",background:"linear-gradient(135deg,#00C896,#0080FF)",border:"none",borderRadius:8,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>
+            ✅ Confirm Sell
+          </button>
+          <button onClick={()=>setOpen(false)}
+            style={{padding:"11px 16px",background:"#1A2D4A",border:"none",borderRadius:8,color:"#4A6080",cursor:"pointer",fontWeight:700,fontFamily:"inherit"}}>
+            বাতিল
+          </button>
         </div>
       </div>
     </div>
@@ -373,8 +1049,272 @@ function SellModal({pos,onSell}){
 }
 
 // ── Main App ──────────────────────────────────────────────────────────
+// ── Trade Item with Withdrawal ──────────────────────────────
+function TradeItem({t,profile,onWithdraw,C}){
+  const [showW,setShowW]=useState(false);
+  const [wAmt,setWAmt]=useState("");
+  const [wBank,setWBank]=useState("");
+  const [wDate,setWDate]=useState(new Date().toISOString().split("T")[0]);
+  const withdrawn=(t.withdrawals||[]).reduce((a,w)=>a+(w.amount||0),0);
+  const balance=(t.profit||0)-withdrawn;
+  const btn2=(cl,act,sm)=>({padding:sm?"4px 10px":"7px 14px",borderRadius:8,border:"none",cursor:"pointer",background:act?cl:cl+"22",color:act?"#fff":cl,fontWeight:700,fontSize:sm?11:12,fontFamily:"inherit"});
+  const inp2=(ex={})=>({background:"#0A1628",border:"1px solid #1A2D4A",borderRadius:6,color:"#E8EAF0",padding:"6px 10px",fontSize:12,fontFamily:"inherit",outline:"none",...ex});
+  const addW=()=>{if(!wAmt||+wAmt<=0)return;onWithdraw(t.id,{id:Date.now(),amount:+wAmt,bank:wBank,date:wDate});setShowW(false);setWAmt("");setWBank("");};
+  return(
+    <div style={{background:"#0F1923",border:"1px solid #1A2D4A",borderRadius:12,padding:14,marginBottom:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:800,color:"#fff",fontSize:14}}>{t.stock} <span style={{background:"#0080FF22",color:"#0080FF",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{t.broker}</span></div>
+          <div style={{fontSize:11,color:"#4A6080",marginTop:2}}>Buy ৳{t.buyRate} → Sell ৳{t.sellPrice} · {t.sellShares} shares · {t.date}</div>
+          {t.commission>0&&<div style={{fontSize:10,color:"#FF9800"}}>Commission: ৳{t.commission.toFixed(0)}</div>}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontWeight:800,fontSize:15,color:t.profit>=0?"#00C896":"#F44336"}}>{t.profit>=0?"+":""}৳{t.profit.toFixed(0)}</div>
+          <div style={{fontSize:11,color:"#FFC107"}}>Balance: ৳{balance.toFixed(0)}</div>
+        </div>
+      </div>
+      {(t.withdrawals||[]).length>0&&(
+        <div style={{marginBottom:8}}>
+          {t.withdrawals.map(w=>(
+            <div key={w.id} style={{background:"#070D1A",borderRadius:6,padding:"5px 10px",marginBottom:4,fontSize:11,display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:"#FFC107"}}>💸 ৳{w.amount} → {w.bank||"Bank"}</span>
+              <span style={{color:"#4A6080"}}>{w.date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {showW?(
+        <div style={{background:"#070D1A",borderRadius:8,padding:12,marginTop:4}}>
+          <div style={{fontSize:11,color:"#FFC107",fontWeight:700,marginBottom:8}}>💸 Withdraw করুন</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div><div style={{fontSize:10,color:"#4A6080",marginBottom:2}}>Amount ৳</div><input type="number" value={wAmt} onChange={e=>setWAmt(e.target.value)} style={inp2({width:"100%",boxSizing:"border-box"})}/></div>
+            <div><div style={{fontSize:10,color:"#4A6080",marginBottom:2}}>Date</div><input type="date" value={wDate} onChange={e=>setWDate(e.target.value)} style={inp2({width:"100%",boxSizing:"border-box"})}/></div>
+            <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,color:"#4A6080",marginBottom:2}}>Bank Account</div>
+              <select value={wBank} onChange={e=>setWBank(e.target.value)} style={inp2({width:"100%"})}>
+                <option value="">Select...</option>
+                {(profile&&profile.bankAccounts||[]).map(b=><option key={b.id} value={b.name}>{b.name} {b.accountNo?"("+b.accountNo+")":""}</option>)}
+              </select></div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={addW} style={btn2("#FFC107",true,true)}>✅ Confirm</button>
+            <button onClick={()=>setShowW(false)} style={btn2("#4A6080",false,true)}>বাতিল</button>
+          </div>
+        </div>
+      ):(
+        <button onClick={()=>setShowW(true)} style={btn2("#FFC107",false,true)}>💸 Withdraw করুন</button>
+      )}
+    </div>
+  );
+}
+
+// ── Login Screen ─────────────────────────────────────────────
+function LoginScreen({onLogin}){
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const go=async()=>{setLoading(true);setErr("");try{await onLogin();}catch(e){setErr("Login ব্যর্থ: "+e.message);}setLoading(false);};
+  return(
+    <div style={{background:"#070D1A",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#0F1923",border:"1px solid #1A2D4A",borderRadius:16,padding:32,width:"100%",maxWidth:380,textAlign:"center"}}>
+        <div style={{fontSize:56,marginBottom:12}}>📊</div>
+        <div style={{fontWeight:800,fontSize:24,color:"#fff",marginBottom:4}}>DSE Trading Dashboard</div>
+        <div style={{fontSize:13,color:"#4A6080",marginBottom:32}}>v7 · Enterprise · Cloud Sync</div>
+        <button onClick={go} disabled={loading} style={{width:"100%",padding:14,background:"#fff",border:"none",borderRadius:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:12,fontSize:15,fontWeight:700,color:"#1A1A1A",marginBottom:12,fontFamily:"inherit"}}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.29-8.16 2.29-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          {loading?"লোড হচ্ছে...":"Google দিয়ে Login করুন"}
+        </button>
+        {err&&<div style={{color:"#F44336",fontSize:12,marginTop:8}}>{err}</div>}
+        <div style={{fontSize:11,color:"#4A6080",marginTop:16}}>📊 আপনার data Firebase এ সুরক্ষিত</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Settings Page ─────────────────────────────────────────────
+function SettingsPage({profile,user,onSave,onClose,onSignOut}){
+  const [tab,setTab]=useState("profile");
+  const [lp,setLp]=useState({...DEFAULT_PROFILE,...profile});
+  const [saving,setSaving]=useState(false);
+  const upd=(k,v)=>setLp(p=>({...p,[k]:v}));
+  const updBroker=(id,k,v)=>setLp(p=>({...p,brokers:p.brokers.map(b=>b.id===id?{...b,[k]:v}:b)}));
+  const updBank=(id,k,v)=>setLp(p=>({...p,bankAccounts:p.bankAccounts.map(b=>b.id===id?{...b,[k]:v}:b)}));
+  const save=async()=>{setSaving(true);await onSave(lp);setSaving(false);};
+  const C2={bg:"#070D1A",card:"#0F1923",border:"#1A2D4A",text:"#E8EAF0",muted:"#4A6080",accent:"#00C896",blue:"#0080FF",yellow:"#FFC107",red:"#F44336"};
+  const inp2=(ex={})=>({background:"#0A1628",border:"1px solid #1A2D4A",borderRadius:6,color:"#E8EAF0",padding:"6px 10px",fontSize:13,fontFamily:"inherit",outline:"none",...ex});
+  const btn2=(cl,act,sm)=>({padding:sm?"4px 10px":"8px 16px",borderRadius:8,border:"none",cursor:"pointer",background:act?cl:cl+"20",color:act?"#fff":cl,fontWeight:700,fontSize:sm?11:13,fontFamily:"inherit"});
+  const TS2=(t)=>({padding:"8px 14px",border:"none",cursor:"pointer",background:tab===t?C2.accent:"transparent",color:tab===t?"#fff":C2.muted,fontWeight:700,fontSize:12,fontFamily:"inherit",borderRadius:8});
+  return(
+    <div style={{background:C2.bg,minHeight:"100vh",padding:"0 0 80px"}}>
+      <div style={{background:"linear-gradient(135deg,#070D1A,#0F2040)",padding:"20px 20px 0",borderBottom:"1px solid "+C2.border}}>
+        <div style={{maxWidth:680,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:20}}>
+            <img src={user.photoURL||"https://ui-avatars.com/api/?name="+encodeURIComponent(user.displayName||"U")+"&background=00C896&color=fff"} style={{width:64,height:64,borderRadius:32,border:"3px solid #00C896"}} alt="profile"/>
+            <div>
+              <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>{lp.displayName||user.displayName}</div>
+              <div style={{fontSize:12,color:C2.muted}}>{user.email}</div>
+              <div style={{fontSize:11,color:C2.accent,marginTop:2}}>DSE Trader Enterprise</div>
+            </div>
+            <button onClick={onClose} style={{marginLeft:"auto",...btn2(C2.muted,false,true)}}>✕ বন্ধ</button>
+          </div>
+          <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:4}}>
+            {[["profile","👤 Profile"],["brokers","🏦 Brokers"],["banks","🏧 Banks"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setTab(t)} style={TS2(t)}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{maxWidth:680,margin:"20px auto",padding:"0 20px"}}>
+        {tab==="profile"&&(
+          <div style={{background:C2.card,border:"1px solid "+C2.border,borderRadius:12,padding:20}}>
+            <div style={{fontWeight:700,color:C2.accent,marginBottom:14}}>👤 Profile</div>
+            {[["displayName","নাম"],["phone","ফোন"]].map(([k,l])=>(
+              <div key={k} style={{marginBottom:12}}>
+                <div style={{fontSize:11,color:C2.muted,marginBottom:3}}>{l}</div>
+                <input value={lp[k]||""} onChange={e=>upd(k,e.target.value)} style={{...inp2({width:"100%",boxSizing:"border-box"})}}/>
+              </div>
+            ))}
+            <div style={{marginTop:20,padding:14,background:"#070D1A",borderRadius:10,border:"1px solid "+C2.red+"44"}}>
+              <div style={{fontWeight:700,color:C2.red,marginBottom:8}}>⚠️ Account</div>
+              <button onClick={onSignOut} style={{...btn2(C2.red,true),width:"100%",padding:12}}>🚪 Sign Out</button>
+            </div>
+          </div>
+        )}
+        {tab==="brokers"&&(
+          <div style={{background:C2.card,border:"1px solid "+C2.border,borderRadius:12,padding:20}}>
+            <div style={{fontWeight:700,color:C2.accent,marginBottom:6}}>🏦 Broker Commission</div>
+            <div style={{fontSize:12,color:C2.muted,marginBottom:14}}>প্রতিটি broker এর আলাদা commission % সেট করুন।</div>
+            {(lp.brokers||DEFAULT_BROKERS).map(b=>(
+              <div key={b.id} style={{background:"#070D1A",borderRadius:10,padding:14,marginBottom:10,border:"1px solid "+C2.border}}>
+                <div style={{fontWeight:700,color:"#4FC3F7",marginBottom:8}}>{b.name}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <div style={{fontSize:11,color:C2.muted,marginBottom:3}}>Commission %</div>
+                    <input type="number" value={b.commission} step="0.01" min="0" max="2" onChange={e=>updBroker(b.id,"commission",+e.target.value)} style={{...inp2({width:90,textAlign:"center"})}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,color:C2.muted,marginBottom:3}}>Withdraw Fee ৳</div>
+                    <input type="number" value={b.withdrawFee||0} min="0" onChange={e=>updBroker(b.id,"withdrawFee",+e.target.value)} style={{...inp2({width:90,textAlign:"center"})}}/>
+                  </div>
+                </div>
+                <div style={{marginTop:6,fontSize:11,color:C2.yellow}}>৳১০,০০০ trade এ commission ≈ ৳{(10000*b.commission/100).toFixed(0)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab==="banks"&&(
+          <div style={{background:C2.card,border:"1px solid "+C2.border,borderRadius:12,padding:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{fontWeight:700,color:C2.accent}}>🏧 Bank Accounts</div>
+              <button onClick={()=>setLp(p=>({...p,bankAccounts:[...p.bankAccounts,{id:Date.now()+"",name:"",accountNo:"",branch:""}]}))} style={btn2(C2.blue,true,true)}>+ Add</button>
+            </div>
+            {(lp.bankAccounts||[]).map(b=>(
+              <div key={b.id} style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:8,border:"1px solid "+C2.border}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:6}}>
+                  {[["name","Bank Name"],["accountNo","Account No"],["branch","Branch"]].map(([k,l])=>(
+                    <div key={k}><div style={{fontSize:11,color:C2.muted,marginBottom:2}}>{l}</div><input value={b[k]||""} onChange={e=>updBank(b.id,k,e.target.value)} style={{...inp2({width:"100%",boxSizing:"border-box",fontSize:12})}}/></div>
+                  ))}
+                </div>
+                <button onClick={()=>setLp(p=>({...p,bankAccounts:p.bankAccounts.filter(x=>x.id!==b.id)}))} style={btn2(C2.red,false,true)}>🗑️ Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{marginTop:14}}>
+          <button onClick={save} disabled={saving} style={{...btn2(C2.accent,true),width:"100%",padding:14}}>{saving?"💾 Saving...":"✅ Save Settings"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Profit Dashboard Tab ──────────────────────────────────────
+function ProfitDashboard({trades,portfolio,stocks,profile}){
+  const [period,setPeriod]=useState("week");
+  const C2={bg:"#070D1A",card:"#0F1923",border:"#1A2D4A",accent:"#00C896",yellow:"#FFC107",red:"#F44336",gold:"#FFD700",muted:"#4A6080",blue:"#0080FF",orange:"#FF9800"};
+  const card2=(ex={})=>({background:C2.card,border:"1px solid "+C2.border,borderRadius:12,...ex});
+  const btn2=(cl,act,sm)=>({padding:sm?"4px 10px":"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:act?cl:cl+"20",color:act?"#fff":cl,fontWeight:700,fontSize:sm?11:12,fontFamily:"inherit"});
+
+  const filtered=useMemo(()=>{
+    const cutoff=new Date();
+    if(period==="day")cutoff.setDate(cutoff.getDate()-1);
+    else if(period==="week")cutoff.setDate(cutoff.getDate()-7);
+    else if(period==="fortnight")cutoff.setDate(cutoff.getDate()-14);
+    else if(period==="month")cutoff.setMonth(cutoff.getMonth()-1);
+    else cutoff.setFullYear(2000);
+    return trades.filter(t=>new Date(t.date)>=cutoff);
+  },[trades,period]);
+
+  const totalRealized=trades.reduce((a,t)=>a+(t.profit||0),0);
+  const totalWithdrawn=trades.reduce((a,t)=>a+(t.withdrawals||[]).reduce((x,w)=>x+(w.amount||0),0),0);
+  const inBroker=totalRealized-totalWithdrawn;
+  const periodProfit=filtered.reduce((a,t)=>a+(t.profit||0),0);
+
+  const daily=useMemo(()=>{
+    const map={};
+    trades.forEach(t=>{const d=t.date?t.date.split("T")[0]:null;if(d)map[d]=(map[d]||0)+(t.profit||0);});
+    const days=[];
+    for(let i=29;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const k=d.toISOString().split("T")[0];days.push({date:k.slice(5),profit:map[k]||0});}
+    return days;
+  },[trades]);
+  const maxP=Math.max(...daily.map(d=>Math.abs(d.profit)),1);
+
+  const portMap={};portfolio.forEach(p=>{portMap[p.stock]=(portMap[p.stock]||0)+p.shares;});
+  const top3=[...stocks].map(s=>({...s,score:calcScore(s,7),str:generateStrategy(s,7,portMap[s.name]||0)})).filter(s=>s.score>=60&&s.str&&s.str.priority<=2).sort((a,b)=>b.score-a.score).slice(0,3);
+
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10,marginBottom:14}}>
+        {[["Total Realized","৳"+totalRealized.toFixed(0),C2.accent],["Broker Balance","৳"+Math.max(0,inBroker).toFixed(0),C2.blue],["Withdrawn","৳"+totalWithdrawn.toFixed(0),C2.yellow],["Period P&L","৳"+periodProfit.toFixed(0),periodProfit>=0?C2.accent:C2.red]].map(([l,v,cl])=>(
+          <div key={l} style={{...card2(),padding:12,textAlign:"center"}}><div style={{fontSize:11,color:C2.muted,marginBottom:4}}>{l}</div><div style={{fontSize:16,fontWeight:800,color:cl}}>{v}</div></div>
+        ))}
+      </div>
+      <div style={{...card2(),padding:12,marginBottom:14,display:"flex",gap:8,flexWrap:"wrap"}}>
+        {[["day","আজ"],["week","সাপ্তাহিক"],["fortnight","পাক্ষিক"],["month","মাসিক"],["all","সব"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setPeriod(k)} style={btn2(C2.accent,period===k,true)}>{l}</button>
+        ))}
+      </div>
+      <div style={{...card2(),padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,color:C2.accent,marginBottom:10}}>📈 Daily P&L (30 days)</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:2,height:80}}>
+          {daily.map((d,i)=>{const h=Math.max(2,Math.abs(d.profit)/maxP*70);const color=d.profit>=0?"#00C896":"#F44336";return(
+            <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+              <div style={{width:"80%",height:h,background:color,borderRadius:"2px 2px 0 0"}}/>
+              {i%5===0&&<div style={{fontSize:7,color:C2.muted,transform:"rotate(-45deg)",whiteSpace:"nowrap",marginTop:2}}>{d.date}</div>}
+            </div>
+          );})}
+        </div>
+      </div>
+      <div style={{...card2(),padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,color:C2.accent,marginBottom:10}}>💰 {period==="day"?"আজ":period==="week"?"সাপ্তাহিক":period==="fortnight"?"পাক্ষিক":period==="month"?"মাসিক":"সব"}: <span style={{color:periodProfit>=0?C2.accent:C2.red}}>৳{periodProfit.toFixed(0)}</span></div>
+        {filtered.length===0?<div style={{color:C2.muted,fontSize:12}}>এই period এ trade নেই।</div>:filtered.map((t,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+C2.border}}>
+            <div><div style={{fontWeight:700,color:"#fff",fontSize:13}}>{t.stock} <span style={{color:C2.muted,fontSize:11}}>{t.broker}</span></div><div style={{fontSize:10,color:C2.muted}}>{t.date}</div></div>
+            <div style={{fontWeight:800,color:t.profit>=0?C2.accent:C2.red}}>{t.profit>=0?"+":""}৳{t.profit.toFixed(0)}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{...card2(),padding:14}}>
+        <div style={{fontWeight:700,color:"#FFD700",marginBottom:10}}>🏆 Top 3 Buy — এখন কিনুন</div>
+        {top3.length===0?<div style={{color:C2.muted,fontSize:12}}>এখন strong signal নেই।</div>:top3.map((s,i)=>(
+          <div key={s.id} style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:8,border:"1px solid "+(i===0?"#FFD700":i===1?"#C0C0C0":"#CD7F32")+"44"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <div style={{width:26,height:26,background:i===0?"#FFD700":i===1?"#C0C0C0":"#CD7F32",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,color:"#000"}}>#{i+1}</div>
+              <div style={{flex:1}}><div style={{fontWeight:800,color:"#fff"}}>{s.name} <span style={{fontSize:11,color:C2.muted}}>৳{s.price}</span></div><div style={{fontSize:10,color:C2.accent}}>Score: {s.score} · {s.str.risk}</div></div>
+            </div>
+            <div style={{fontSize:12,color:"#E8EAF0",lineHeight:1.5,marginBottom:4}}>{s.str.buyStr}</div>
+            <div style={{display:"flex",gap:10,fontSize:11}}><span style={{color:C2.accent}}>T1: ৳{s.str.t1}</span><span style={{color:C2.yellow}}>T2: ৳{s.str.t2}</span><span style={{color:C2.muted}}>Zone: {s.str.buyZone}</span></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function App(){
   const sv=load();
+  const [user,setUser]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [profile,setProfile]=useState(DEFAULT_PROFILE);
+  const [showSettings,setShowSettings]=useState(false);
   const [tab,setTab]=useState("screener");
   const [stocks,setStocks]=useState((sv&&sv.stocks)||INIT_STOCKS);
   const [port,setPort]=useState((sv&&sv.port)||INIT_PORT);
@@ -403,9 +1343,14 @@ export default function App(){
   const [liveLoading,setLiveLoading]=useState(false);
   const [liveStatus,setLiveStatus]=useState(null); // null | "ok" | "error"
   const [liveUpdatedAt,setLiveUpdatedAt]=useState(null);
+  const [chartStock,setChartStock]=useState(null); // stock being charted
+  const [chartType,setChartType]=useState("candlestick"); // candlestick|line|ohlc
+  const [chartData,setChartData]=useState({}); // {SYMBOL: [{date,open,high,low,close,vol}]}
+  const [chartLoading,setChartLoading]=useState(false);
+  const [taData,setTaData]=useState({}); // {SYMBOL: fullTA result}
   const [ns,setNs]=useState({name:"",sector:"Bank",cat:"A",price:"",eps:"",pe:"",nav:"",div:"",rsi:"50",macd:"0",vol:"",vma20:"",ema20:"",sma50:"",ret6m:"",inst:"",circuit:""});
   const [nsSearch,setNsSearch]=useState("");
-  const [np,setNp]=useState({stock:"",broker:"Ecosoft",shares:"",buyRate:"",target1:"",target2:"",stopLoss:""});
+  const [np,setNp]=useState({stock:"",broker:"Ecosoft",shares:"",buyRate:"",target1:"",target2:"",stopLoss:"",buyDate:TODAY,customSellTarget:""});
   const [npSearch,setNpSearch]=useState("");
 
   // ── Technical Indicator Calculators ─────────────────────────────────
@@ -590,630 +1535,13 @@ export default function App(){
     }
   };
 
-  const showToast=(msg,type)=>{setToast({msg,type:type||"ok"});setTimeout(()=>setToast(null),4000);};
-  const persist=useCallback((s,p,t)=>save({stocks:s||stocks,port:p||port,trades:t||trades}),[stocks,port,trades]);
+  // ════════════════════════════════════════════════════════════════════
+  // TECHNICAL ANALYSIS ENGINE — DSE Bangladesh Market Optimized
+  // ════════════════════════════════════════════════════════════════════
 
-  const portMap=useMemo(()=>{const m={};port.forEach(p=>{m[p.stock]=(m[p.stock]||0)+p.shares;});return m;},[port]);
-
-  // Apply paste
-  const applyPaste=(data)=>{
-    if(!data.name){showToast("❌ name দরকার","err");return;}
-    const nm=data.name.toUpperCase();
-    const ud=Object.assign({},data,{name:nm,updatedAt:TODAY});
-    const exists=stocks.find(s=>s.name.toUpperCase()===nm);
-    if(exists){
-      const u=stocks.map(s=>s.name.toUpperCase()===nm?Object.assign({},s,ud,{id:s.id}):s);
-      setStocks(u);persist(u,null,null);showToast("✅ "+nm+" আপডেট হয়েছে!");
-    }else{
-      const s=Object.assign({id:Date.now(),cat:"A",sector:"অন্যান্য",eps:0,pe:0,nav:1,div:0,rsi:50,macd:0,vol:0,vma20:500000,ema20:0,sma50:0,ret6m:0,inst:0,circuit:0,totalShares:5000000},ud);
-      const u=[...stocks,s];setStocks(u);persist(u,null,null);showToast("✅ "+nm+" নতুন যোগ হয়েছে!");
-    }
-  };
-
-  // Portfolio paste
-  const applyPortPaste=()=>{
-    setPortPasteErr("");
-    try{
-      const raw=JSON.parse(portPasteCode.trim());
-      const items=Array.isArray(raw)?raw:[raw];
-      if(!items.length){setPortPasteErr("❌ কোনো data নেই।");return;}
-      let added=0,updated=0;
-      let newPort=[...port];
-      items.forEach(item=>{
-        if(!item.stock||!item.buyRate)return;
-        const broker=item.broker||portPasteBroker;
-        const br=+item.buyRate;
-        const idx=newPort.findIndex(p=>p.stock.toUpperCase()===item.stock.toUpperCase()&&p.broker===broker);
-        if(idx>=0){
-          newPort[idx]=Object.assign({},newPort[idx],{shares:item.shares!==undefined?+item.shares:newPort[idx].shares,buyRate:br||newPort[idx].buyRate,currentPrice:item.currentPrice!==undefined?+item.currentPrice:newPort[idx].currentPrice,target1:item.target1?+item.target1:newPort[idx].target1,target2:item.target2?+item.target2:newPort[idx].target2,stopLoss:item.stopLoss?+item.stopLoss:newPort[idx].stopLoss});
-          updated++;
-        }else{
-          newPort.push({id:Date.now()+Math.random(),stock:item.stock.toUpperCase(),broker,shares:+item.shares||0,buyRate:br,currentPrice:item.currentPrice!==undefined?+item.currentPrice:br,target1:item.target1?+item.target1:+(br*1.07).toFixed(2),target2:item.target2?+item.target2:+(br*1.15).toFixed(2),stopLoss:item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2),trailingSL:item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2),realized:0});
-          added++;
-        }
-      });
-      setPort(newPort);persist(null,newPort,null);
-      setPortPasteCode("");setShowPortPaste(false);setPortPasteErr("");
-      showToast("✅ "+added+"টি নতুন যোগ, "+updated+"টি আপডেট হয়েছে!");
-    }catch(e){setPortPasteErr("❌ JSON format ঠিক নেই।");}
-  };
-
-  // Scored stocks
-  const scored=useMemo(()=>stocks.map(s=>{
-    const score=calcScore(s,days);const rec=getRec(score);
-    const str=generateStrategy(s,days,portMap[s.name]||0);
-    return Object.assign({},s,{score,rec,str});
-  }),[stocks,days,portMap]);
-
-  // Filtered
-  const filtered=useMemo(()=>{
-    let list=[...scored];
-    if(nameFilter.trim())list=list.filter(s=>s.name.toUpperCase().includes(nameFilter.trim().toUpperCase()));
-    if(sector!=="সব")list=list.filter(s=>s.sector===sector);
-    if(sigF!=="সব"){const m={"STRONG BUY":s=>s.score>=75,"BUY":s=>s.score>=60&&s.score<75,"WATCH":s=>s.score>=45&&s.score<60,"WEAK":s=>s.score>=30&&s.score<45,"AVOID":s=>s.score<30};list=list.filter(m[sigF]||(_=>true));}
-    list.sort((a,b)=>sortBy==="score"?b.score-a.score:sortBy==="rsi"?a.rsi-b.rsi:sortBy==="vol"?b.vol-a.vol:b.eps-a.eps);
-    return list;
-  },[scored,sector,sigF,sortBy,days,nameFilter]);
-
-  const sigC=useMemo(()=>{
-    const c={"STRONG BUY":0,"BUY":0,"WATCH":0,"WEAK":0,"AVOID":0};
-    scored.forEach(s=>{if(s.score>=75)c["STRONG BUY"]++;else if(s.score>=60)c["BUY"]++;else if(s.score>=45)c["WATCH"]++;else if(s.score>=30)c["WEAK"]++;else c["AVOID"]++;});
-    return c;
-  },[scored]);
-
-  // Enriched portfolio — Trailing SL logic
-  const enriched=useMemo(()=>port.map(p=>{
-    const cost=p.shares*p.buyRate,val=p.shares*p.currentPrice,pl=val-cost,plp=cost!==0?(pl/cost)*100:0;
-    const sData=stocks.find(s=>s.name===p.stock);
-    const str=sData?generateStrategy(sData,days,p.shares):{t1:p.target1,t2:p.target2,t3:null,sl:p.stopLoss,sellT1:40,sellT2:40,sellT3:20,risk:"🟡 MEDIUM",sellStr:"Screener এ stock নেই।",maSignal:"—",isBreakoutVol:false};
-    // Trailing SL calculation
-    const tsl=calcTrailingSL({...p,str});
-    const isTSLActive=tsl>p.stopLoss;
-    let sig="⏳ HOLD";
-    const effectiveSL=Math.max(tsl,p.stopLoss);
-    if(p.currentPrice<=effectiveSL)sig="🔴 STOP LOSS!";
-    else if(p.currentPrice>=str.t2)sig="🚀 T2 SELL";
-    else if(p.currentPrice>=str.t1)sig="✅ T1 SELL";
-    return Object.assign({},p,{cost,val,pl,plp,sig,str,sData,tsl,isTSLActive,effectiveSL});
-  }),[port,stocks,days]);
-
-  const summ=useMemo(()=>{
-    const tc=enriched.reduce((a,p)=>a+p.cost,0),tv=enriched.reduce((a,p)=>a+p.val,0),tr=trades.reduce((a,t)=>a+(t.profit||0),0);
-    const byB={};enriched.forEach(p=>{if(!byB[p.broker])byB[p.broker]={cost:0,val:0,n:0};byB[p.broker].cost+=p.cost;byB[p.broker].val+=p.val;byB[p.broker].n++;});
-    return{tc,tv,tpl:tv-tc,tr,byB};
-  },[enriched,trades]);
-
-  const updateStock=(id,f,v)=>{const u=stocks.map(s=>s.id===id?Object.assign({},s,{[f]:v}):s);setStocks(u);persist(u,null,null);};
-  const updatePort=(id,f,v)=>{const u=port.map(p=>p.id===id?Object.assign({},p,{[f]:+v}):p);setPort(u);persist(null,u,null);};
-  const removeStock=(id)=>{const u=stocks.filter(s=>s.id!==id);setStocks(u);persist(u,null,null);showToast("Stock সরানো হয়েছে।");};
-  const confirmDelete=(item)=>setDeleteItem(item);
-  const doDelete=(reason)=>{
-    setUndoItem(Object.assign({},deleteItem,{deleteReason:reason}));
-    const u=port.filter(p=>p.id!==deleteItem.id);setPort(u);persist(null,u,null);setDeleteItem(null);
-    showToast("🗑️ "+deleteItem.stock+" সরানো হয়েছে। Undo করুন।","warn");
-    setTimeout(()=>setUndoItem(null),15000);
-  };
-  const undoDelete=()=>{
-    const pos=Object.assign({},undoItem);delete pos.deleteReason;
-    const u=[...port,pos];setPort(u);persist(null,u,null);setUndoItem(null);
-    showToast("✅ "+pos.stock+" ফিরিয়ে আনা হয়েছে!");
-  };
-
-  const addStock=()=>{
-    if(!ns.name||!ns.price)return;
-    const nm=ns.name.toUpperCase();
-    const fields={price:+ns.price,eps:+ns.eps||0,pe:+ns.pe||0,nav:+ns.nav||0,div:+ns.div||0,rsi:+ns.rsi||50,macd:+ns.macd||0,vol:+ns.vol||0,vma20:+ns.vma20||500000,ema20:+ns.ema20||0,sma50:+ns.sma50||0,ret6m:+ns.ret6m||0,inst:+ns.inst||0,circuit:+ns.circuit||0,cat:ns.cat,sector:ns.sector,updatedAt:TODAY};
-    const exists=stocks.find(s=>s.name.toUpperCase()===nm);
-    let u;
-    if(exists){u=stocks.map(s=>s.name.toUpperCase()===nm?Object.assign({},s,fields,{name:s.name}):s);showToast("✅ "+nm+" আপডেট হয়েছে!");}
-    else{u=[...stocks,Object.assign({id:Date.now(),name:nm,totalShares:5000000},fields)];showToast("✅ "+nm+" যোগ হয়েছে!");}
-    setStocks(u);persist(u,null,null);
-    setNs({name:"",sector:"Bank",cat:"A",price:"",eps:"",pe:"",nav:"",div:"",rsi:"50",macd:"0",vol:"",vma20:"",ema20:"",sma50:"",ret6m:"",inst:"",circuit:""});setNsSearch("");setShowAddS(false);
-  };
-
-  const selectStockForNS=(s)=>{
-    setNs({name:s.name,sector:s.sector,cat:s.cat,price:String(s.price),eps:String(s.eps),pe:String(s.pe),nav:String(s.nav),div:String(s.div),rsi:String(s.rsi),macd:String(s.macd),vol:String(s.vol),vma20:String(s.vma20||""),ema20:String(s.ema20||""),sma50:String(s.sma50||""),ret6m:String(s.ret6m),inst:String(s.inst),circuit:String(s.circuit||"")});
-    setNsSearch(s.name);
-  };
-  const selectStockForPort=(s)=>{
-    setNp(p=>Object.assign({},p,{stock:s.name,target1:+(s.price*1.07).toFixed(2),target2:+(s.price*1.15).toFixed(2),stopLoss:+(s.price*0.92).toFixed(2)}));
-    setNpSearch(s.name);
-  };
-  const addPosition=()=>{
-    if(!np.stock||!np.shares||!np.buyRate)return;
-    const br=+np.buyRate;
-    const p=Object.assign({},np,{id:Date.now(),shares:+np.shares,buyRate:br,currentPrice:br,target1:+np.target1||(+(br*1.07).toFixed(2)),target2:+np.target2||(+(br*1.15).toFixed(2)),stopLoss:+np.stopLoss||(+(br*0.92).toFixed(2)),trailingSL:+np.stopLoss||(+(br*0.92).toFixed(2)),realized:0});
-    const u=[...port,p];setPort(u);persist(null,u,null);
-    setNp({stock:"",broker:"Ecosoft",shares:"",buyRate:"",target1:"",target2:"",stopLoss:""});setNpSearch("");setShowAddP(false);
-    showToast("✅ "+p.stock+" portfolio এ যোগ হয়েছে!");
-  };
-  const recordSell=(p,sp,ss)=>{
-    const profit=(sp-p.buyRate)*ss-(ss*p.buyRate+ss*sp)*COMM;
-    const t={id:Date.now(),stock:p.stock,broker:p.broker,buyRate:p.buyRate,sellPrice:sp,sellShares:ss,profit,date:new Date().toLocaleDateString()};
-    const ut=[...trades,t];
-    const up=port.map(x=>x.id===p.id?Object.assign({},x,{shares:x.shares-ss,realized:(x.realized||0)+profit}):x).filter(x=>x.shares>0);
-    setTrades(ut);setPort(up);persist(null,up,ut);
-    showToast("✅ "+p.stock+" — ৳"+profit.toFixed(0)+" লাভ রেকর্ড!");
-  };
-
-  const TS=(a)=>({padding:"10px 18px",borderRadius:"8px 8px 0 0",border:"none",cursor:"pointer",background:a?C.card:"transparent",color:a?C.accent:C.muted,fontWeight:700,fontSize:13,fontFamily:"inherit",borderBottom:a?"2px solid "+C.accent:"2px solid transparent"});
-  const staleCount=stocks.filter(s=>{const d=daysSince(s.updatedAt);return d!==null&&d>3;}).length;
-
-  return(
-    <div style={{background:C.bg,minHeight:"100vh",fontFamily:"Inter,-apple-system,sans-serif",color:C.text}}>
-      {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:10001,background:toast.type==="err"?C.red:toast.type==="warn"?C.orange:C.accent,color:"#fff",borderRadius:10,padding:"12px 20px",fontWeight:700,fontSize:14,boxShadow:"0 8px 32px rgba(0,0,0,0.5)",maxWidth:340}}>{toast.msg}</div>}
-      {showPaste&&<PasteModal onApply={applyPaste} onClose={()=>setShowPaste(false)}/>}
-      {stockPaste&&<PasteModal stockName={stockPaste.name} onApply={applyPaste} onClose={()=>setStockPaste(null)}/>}
-      {showBuyRank&&<BuyRankingPanel stocks={stocks} port={port} days={days} onClose={()=>setShowBuyRank(false)}/>}
-      {deleteItem&&<DeleteConfirm item={deleteItem} onConfirm={doDelete} onClose={()=>setDeleteItem(null)}/>}
-      {undoItem&&(
-        <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:9998,background:"#1A2D4A",border:"1px solid "+C.yellow,borderRadius:12,padding:"12px 20px",display:"flex",alignItems:"center",gap:12,boxShadow:"0 8px 32px rgba(0,0,0,0.5)",flexWrap:"wrap"}}>
-          <div style={{fontSize:13,color:C.text}}><span style={{color:C.yellow,fontWeight:700}}>{undoItem.stock}</span> সরানো হয়েছে {undoItem.deleteReason?"("+undoItem.deleteReason+")":""}</div>
-          <button onClick={undoDelete} style={btn(C.yellow,true,true)}>↩️ Undo</button>
-          <button onClick={()=>setUndoItem(null)} style={btn(C.muted,false,true)}>✕</button>
-        </div>
-      )}
-
-      {/* Header */}
-      <div style={{background:"linear-gradient(135deg,#070D1A,#0F2040,#070D1A)",borderBottom:"1px solid "+C.border,padding:"14px 20px"}}>
-        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:44,height:44,background:"linear-gradient(135deg,#00C896,#0080FF)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>📊</div>
-            <div>
-              <div style={{fontWeight:800,fontSize:20,color:"#fff"}}>DSE Trading Dashboard <span style={{fontSize:13,color:C.accent}}>v6</span></div>
-              <div style={{fontSize:12,color:C.muted}}>EMA20 · SMA50 · VMA20 · Trailing SL{staleCount>0&&<span style={{color:C.orange,marginLeft:8}}>⚠️ {staleCount}টি পুরনো</span>}</div>
-            </div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <span style={{fontSize:12,color:C.muted}}>Horizon:</span>
-            {[3,5,7,10,14,21,30].map(d=>(
-              <button key={d} onClick={()=>{setDays(d);setCustomDays("");}} style={btn(C.accent,days===d,true)}>{d}d</button>
-            ))}
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <input type="number" min={1} max={365} value={customDays} onChange={e=>setCustomDays(e.target.value)} placeholder="Custom" style={{...inp({width:65,padding:"4px 8px",fontSize:12}),border:"1px solid "+(customDays?C.yellow:C.border)}}/>
-              {customDays&&<button onClick={()=>{const d=parseInt(customDays,10);if(d>0){setDays(d);setCustomDays("");}}} style={btn(C.yellow,true,true)}>✅</button>}
-            </div>
-            <button onClick={()=>setShowBuyRank(true)} style={btn(C.accent,true)}>🎯 Buy Ranking</button>
-            <button onClick={fetchLiveData} disabled={liveLoading}
-              style={{...btn(liveStatus==="ok"?C.accent:liveStatus==="error"?C.red:C.blue, liveStatus==="ok", false),
-                opacity: liveLoading ? 0.7 : 1}}>
-              {liveLoading ? "⏳ Loading..." : liveStatus==="ok" ? "🟢 Updated" : "📡 DSE Sync"}
-            </button>
-          </div>
-        </div>
-        <div style={{maxWidth:1140,margin:"4px auto 0",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:12,color:C.yellow,fontWeight:600}}>📅 {days} দিনের strategy · EMA20/SMA50/VMA20 scoring active</span>
-          {liveUpdatedAt&&<span style={{fontSize:11,color:C.accent}}>🟢 শেষ update: {liveUpdatedAt}</span>}
-          {liveStatus==="error"&&<span style={{fontSize:11,color:C.red}}>❌ Sync ব্যর্থ — পরে চেষ্টা করুন</span>}
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div style={{background:C.bg,borderBottom:"1px solid "+C.border,padding:"0 20px"}}>
-        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",gap:4,overflowX:"auto"}}>
-          {[["screener","📊 Screener"],["portfolio","💼 Portfolio"],["trades","📋 Trade Log"],["risk","⚠️ Risk"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)} style={TS(tab===t)}>{l}</button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{maxWidth:1140,margin:"0 auto",padding:"16px 20px"}}>
-
-        {/* ══ SCREENER ══ */}
-        {tab==="screener"&&(
-          <div>
-            {/* Filter bar */}
-            <div style={{...card(),padding:14,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:8}}>
-                <div style={{fontSize:11,color:C.muted,fontWeight:600}}>মোট: {stocks.length} · {days} দিনের Signal</div>
-                <div style={{position:"relative",minWidth:180}}>
-                  <input value={nameFilter} onChange={e=>setNameFilter(e.target.value)} placeholder="🔍 Stock নাম খুঁজুন..."
-                    style={{...inp({width:"100%",boxSizing:"border-box",border:"1px solid "+(nameFilter?C.accent:C.border),fontSize:12,padding:"6px 10px"})}}/>
-                  {nameFilter&&<button onClick={()=>setNameFilter("")} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>}
-                </div>
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {[["সব",stocks.length,"#4A6080"],["STRONG BUY",sigC["STRONG BUY"],"#00C896"],["BUY",sigC["BUY"],"#4CAF50"],["WATCH",sigC["WATCH"],"#FFC107"],["WEAK",sigC["WEAK"],"#FF9800"],["AVOID",sigC["AVOID"],"#F44336"]].map(([lb,ct,cl])=>(
-                  <button key={lb} onClick={()=>setSigF(lb)} style={{padding:"7px 14px",borderRadius:8,border:"2px solid "+(sigF===lb?cl:"transparent"),background:sigF===lb?cl+"28":cl+"0e",color:cl,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
-                    {lb} <span style={{background:cl+"30",borderRadius:20,padding:"1px 7px",fontSize:11}}>{ct}</span>
-                  </button>
-                ))}
-              </div>
-              {(nameFilter||sector!=="সব"||sigF!=="সব")&&<div style={{marginTop:8,fontSize:11,color:C.yellow}}>দেখাচ্ছে: {filtered.length}টি <button onClick={()=>{setNameFilter("");setSector("সব");setSigF("সব");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>সব ফিল্টার মুছুন</button></div>}
-              <div style={{marginTop:10,padding:"8px 12px",background:C.blue+"11",borderRadius:8,border:"1px solid "+C.blue+"33",fontSize:11,color:C.muted,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                <span>💡 বাজার বন্ধের পর</span><span style={{color:C.blue,fontWeight:700}}>📡 DSE Sync</span><span>চাপুন — closing price auto-update হবে।</span>
-                {liveLoading&&<span style={{color:C.yellow,fontWeight:700}}>⏳ Data আনছি...</span>}
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div style={{...card(),padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-              <select value={sector} onChange={e=>setSector(e.target.value)} style={inp()}>{SECTORS.map(s=><option key={s}>{s}</option>)}</select>
-              <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={inp()}>
-                <option value="score">Score</option><option value="vol">Volume</option><option value="eps">EPS</option><option value="rsi">RSI</option>
-              </select>
-              <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-                <button onClick={()=>{setShowPaste(true);setShowAddS(false);}} style={btn(C.purple)}>📋 Code Paste</button>
-                <button onClick={()=>setShowAddS(!showAddS)} style={btn(C.blue,showAddS)}>+ Manual যোগ</button>
-              </div>
-            </div>
-
-            {/* Manual Add / Edit */}
-            {showAddS&&(
-              <div style={{...card(),padding:20,marginBottom:12,border:"1px solid "+C.blue}}>
-                <div style={{fontWeight:700,color:C.blue,marginBottom:10,fontSize:15}}>Stock যোগ / আপডেট (Manual)</div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:10}}>💡 আগের stock বেছে নিলে data auto-fill হবে</div>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Stock Name (suggestion):</div>
-                  <StockSearch stocks={stocks} value={nsSearch} onChange={v=>{setNsSearch(v);setNs(p=>Object.assign({},p,{name:v}));}} onSelect={selectStockForNS}/>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(125px,1fr))",gap:10,marginBottom:14}}>
-                  {[["price","Price*"],["eps","EPS"],["pe","P/E"],["nav","NAV"],["div","Div%"],["rsi","RSI"],["macd","MACD"],["vol","Volume"],["vma20","VMA20 (avg vol)"],["ema20","EMA 20"],["sma50","SMA 50"],["ret6m","6M Ret%"],["inst","Inst%"],["circuit","Circuit Up"]].map(([k,l])=>(
-                    <div key={k}><div style={{fontSize:11,color:C.muted,marginBottom:3}}>{l}</div>
-                      <input type="number" value={ns[k]} onChange={e=>setNs(p=>Object.assign({},p,{[k]:e.target.value}))}
-                        style={{...inp({width:"100%",boxSizing:"border-box",border:"1px solid "+(ns[k]?C.accent:C.border)})}}/></div>
-                  ))}
-                  <div><div style={{fontSize:11,color:C.muted,marginBottom:3}}>Category</div><select value={ns.cat} onChange={e=>setNs(p=>Object.assign({},p,{cat:e.target.value}))} style={inp({width:"100%"})}><option>A</option><option>B</option><option>Z</option></select></div>
-                  <div><div style={{fontSize:11,color:C.muted,marginBottom:3}}>Sector</div><select value={ns.sector} onChange={e=>setNs(p=>Object.assign({},p,{sector:e.target.value}))} style={inp({width:"100%"})}>{SECTORS.filter(s=>s!=="সব").map(s=><option key={s}>{s}</option>)}</select></div>
-                </div>
-                <div style={{display:"flex",gap:8}}><button onClick={addStock} style={btn(C.accent,true)}>✅ যোগ/আপডেট</button><button onClick={()=>{setShowAddS(false);setNsSearch("");}} style={btn(C.muted)}>বাতিল</button></div>
-              </div>
-            )}
-
-            {/* Stock List */}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {filtered.map((s,idx)=>{
-                const st=staleness(s.updatedAt);const isExp=expanded===s.id;
-                const dCount=daysSince(s.updatedAt);
-                const vmaRatio=s.vma20?s.vol/s.vma20:0;
-                return(
-                  <div key={s.id} style={{...card(),border:"1px solid "+(isExp?s.rec.color:(dCount&&dCount>7)?"#F4433640":C.border),transition:"border 0.2s"}}>
-                    <div style={{padding:"13px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}} onClick={()=>{setExpanded(isExp?null:s.id);setEditMode(null);}}>
-                      <div style={{width:28,height:28,background:idx<3?"linear-gradient(135deg,#FFD700,#FFA500)":"#1A2D4A",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:idx<3?"#000":C.muted,flexShrink:0}}>{idx+1}</div>
-                      <div style={{flex:1,minWidth:100}}>
-                        <div style={{fontWeight:800,fontSize:15,color:"#fff"}}>{s.name} <span style={{fontSize:10,color:s.cat==="A"?C.accent:C.orange,fontWeight:700}}>[{s.cat}]</span></div>
-                        <div style={{fontSize:10,display:"flex",gap:8,flexWrap:"wrap",marginTop:2}}>
-                          <span style={{color:st.color,fontWeight:600}}>{st.label}</span>
-                          {portMap[s.name]&&<span style={{color:C.purple}}>👤{portMap[s.name].toLocaleString()}</span>}
-                          <span style={{color:s.str.maSignal.includes("🟢")?C.accent:C.yellow,fontSize:10}}>{s.str.maSignal}</span>
-                          {s.str.isBreakoutVol&&<span style={{color:C.orange,fontWeight:700,fontSize:10}}>🔥 VOL BREAKOUT</span>}
-                        </div>
-                      </div>
-                      <div style={{textAlign:"center",minWidth:65}}>
-                        <div style={{fontSize:18,fontWeight:800,color:"#4FC3F7"}}>৳{s.price}</div>
-                        <div style={{fontSize:9,color:C.muted}}>circ ৳{s.circuit||"—"}</div>
-                      </div>
-                      <div style={{display:"flex",gap:8,minWidth:70}}>
-                        <div style={{textAlign:"center"}}><div style={{fontSize:13,fontWeight:700,color:s.rsi>70?"#F44336":s.rsi<35?"#00C896":"#FFC107"}}>{s.rsi.toFixed(0)}</div><div style={{fontSize:9,color:C.muted}}>RSI</div></div>
-                        <div style={{textAlign:"center"}}><div style={{fontSize:13,fontWeight:700,color:s.macd>0?"#00C896":"#F44336"}}>{s.macd.toFixed(1)}</div><div style={{fontSize:9,color:C.muted}}>MACD</div></div>
-                        <div style={{textAlign:"center"}}><div style={{fontSize:12,fontWeight:700,color:s.price>s.ema20?C.accent:"#FF6B6B"}}>{s.ema20||"—"}</div><div style={{fontSize:9,color:C.muted}}>EMA20</div></div>
-                      </div>
-                      <div style={{minWidth:110}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}><span style={{fontSize:10,color:C.muted}}>Score/{days}d</span><span style={{fontSize:13,fontWeight:800,color:s.rec.color}}>{s.score}</span></div>
-                        <div style={{height:5,background:"#1A2D4A",borderRadius:3}}><div style={{height:"100%",width:s.score+"%",background:s.rec.color,borderRadius:3}}/></div>
-                      </div>
-                      <div style={{background:s.rec.bg,border:"1px solid "+s.rec.color+"44",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,color:s.rec.color,minWidth:110,textAlign:"center"}}>{s.rec.label}</div>
-                      <div style={{minWidth:100,textAlign:"center"}}>
-                        <div style={{fontSize:12,fontWeight:700,color:s.str.buySignal.includes("🚀")?C.accent:s.str.buySignal.includes("✅")?C.accent:C.yellow}}>{s.str.buySignal}</div>
-                        <div style={{fontSize:9,color:C.muted}}>T1 ৳{s.str.t1} · T2 ৳{s.str.t2}</div>
-                      </div>
-                      <div style={{display:"flex",gap:5}} onClick={e=>e.stopPropagation()}>
-                        <button onClick={()=>setStockPaste(s)} style={btn(C.purple,false,true)} title="JSON paste update">📋</button>
-                        <button onClick={()=>{setEditMode(editMode===s.id?null:s.id);setExpanded(s.id);}} style={btn(C.yellow,editMode===s.id,true)}>✏️</button>
-                        <button onClick={()=>removeStock(s.id)} style={btn(C.red,false,true)}>✕</button>
-                      </div>
-                    </div>
-
-                    {/* Edit Mode — EMA20, SMA50, VMA20 সহ */}
-                    {editMode===s.id&&(
-                      <div style={{padding:"12px 16px",borderTop:"1px solid "+C.border,background:"#070D1A"}}>
-                        <div style={{fontSize:11,color:C.yellow,fontWeight:700,marginBottom:8}}>✏️ Chart দেখে update করুন (EMA20, SMA50, VMA20 সহ):</div>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
-                          <Field label="Price" value={s.price} onChange={v=>updateStock(s.id,"price",v)} width={78}/>
-                          <Field label="RSI" value={s.rsi} onChange={v=>updateStock(s.id,"rsi",v)} width={62}/>
-                          <Field label="MACD" value={s.macd} onChange={v=>updateStock(s.id,"macd",v)} width={62}/>
-                          <Field label="EMA 20" value={s.ema20||0} onChange={v=>updateStock(s.id,"ema20",v)} width={70}/>
-                          <Field label="SMA 50" value={s.sma50||0} onChange={v=>updateStock(s.id,"sma50",v)} width={70}/>
-                          <Field label="VMA 20" value={s.vma20||0} onChange={v=>updateStock(s.id,"vma20",v)} width={90}/>
-                          <Field label="Volume" value={s.vol} onChange={v=>updateStock(s.id,"vol",v)} width={90}/>
-                          <Field label="EPS" value={s.eps} onChange={v=>updateStock(s.id,"eps",v)} width={62}/>
-                          <Field label="Circuit" value={s.circuit||0} onChange={v=>updateStock(s.id,"circuit",v)} width={68}/>
-                          <button onClick={()=>{updateStock(s.id,"updatedAt",TODAY);setEditMode(null);showToast("✅ "+s.name+" saved!");}} style={{...btn(C.accent,true),marginBottom:2}}>✅ Save</button>
-                        </div>
-                        {s.vma20&&s.vol&&(
-                          <div style={{marginTop:8,fontSize:11,color:C.muted}}>
-                            Volume/VMA ratio: <span style={{color:s.vol>s.vma20*2?C.orange:s.vol>s.vma20?C.accent:C.muted,fontWeight:700}}>{(s.vol/s.vma20).toFixed(2)}x</span>
-                            {s.vol>s.vma20*2&&<span style={{color:C.orange,fontWeight:700,marginLeft:8}}>🔥 BREAKOUT VOLUME!</span>}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Expanded Detail */}
-                    {isExp&&editMode!==s.id&&(
-                      <div style={{padding:"0 16px 16px",borderTop:"1px solid "+C.border,paddingTop:14}}>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(195px,1fr))",gap:10}}>
-                          {/* Buy Strategy */}
-                          <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
-                            <div style={{fontSize:12,color:C.accent,fontWeight:700,marginBottom:8}}>📥 Buy Strategy ({days}d)</div>
-                            <div style={{fontSize:13,fontWeight:700,color:s.str.buySignal.includes("🚀")?C.accent:s.str.buySignal.includes("✅")?C.accent:C.yellow,marginBottom:4}}>{s.str.buySignal}</div>
-                            <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Zone: <span style={{color:C.text}}>{s.str.buyZone}</span></div>
-                            <div style={{fontSize:12,color:C.text,lineHeight:1.6}}>{s.str.buyStr}</div>
-                            <div style={{marginTop:6,fontSize:11,fontWeight:700,color:s.str.risk.includes("LOW")?C.accent:s.str.risk.includes("HIGH")?C.red:C.yellow}}>{s.str.risk}</div>
-                            <div style={{marginTop:4,fontSize:11,color:s.str.maSignal.includes("🟢")?C.accent:C.yellow}}>{s.str.maSignal}</div>
-                          </div>
-                          {/* Sell Strategy */}
-                          <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
-                            <div style={{fontSize:12,color:C.yellow,fontWeight:700,marginBottom:8}}>🎯 Dynamic Sell ({days}d)</div>
-                            <div style={{fontSize:12,marginBottom:3}}>T1 ৳{s.str.t1}: <span style={{color:C.accent,fontWeight:700}}>{s.str.sellT1}% sell</span></div>
-                            <div style={{fontSize:12,marginBottom:3}}>T2 ৳{s.str.t2}: <span style={{color:C.accent,fontWeight:700}}>{s.str.sellT2}% sell</span></div>
-                            {s.str.t3&&<div style={{fontSize:12,marginBottom:3}}>T3 ৳{s.str.t3}: <span style={{color:C.accent,fontWeight:700}}>{s.str.sellT3}% sell</span></div>}
-                            <div style={{fontSize:12,color:C.red,marginBottom:6}}>SL: ৳{s.str.sl}</div>
-                            <div style={{fontSize:11,color:C.text,lineHeight:1.6}}>{s.str.sellStr}</div>
-                          </div>
-                          {/* MA + Volume indicators */}
-                          <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
-                            <div style={{fontSize:12,color:"#4FC3F7",fontWeight:700,marginBottom:8}}>📊 MA + Volume Analysis</div>
-                            {[
-                              ["EMA 20","৳"+(s.ema20||"N/A"),s.price>s.ema20?C.accent:C.red],
-                              ["SMA 50","৳"+(s.sma50||"N/A"),s.price>s.sma50?C.accent:C.red],
-                              ["Current Price","৳"+s.price,"#4FC3F7"],
-                              ["Volume",(s.vol/1000000).toFixed(2)+"M",C.text],
-                              ["VMA 20",(s.vma20?((s.vma20)/1000000).toFixed(2):"N/A")+"M",C.text],
-                              ["Vol/VMA Ratio",s.vma20?(s.vol/s.vma20).toFixed(2)+"x":"N/A",s.vma20&&s.vol>s.vma20*2?C.orange:s.vma20&&s.vol>s.vma20?C.accent:C.muted],
-                            ].map(([l,v,cl])=>(
-                              <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}><span style={{color:C.muted}}>{l}</span><span style={{color:cl,fontWeight:600}}>{v}</span></div>
-                            ))}
-                            {s.str.isBreakoutVol&&<div style={{marginTop:6,background:C.orange+"22",borderRadius:4,padding:"3px 8px",fontSize:11,color:C.orange,fontWeight:700}}>🔥 Breakout Volume! VMA x{s.vma20?(s.vol/s.vma20).toFixed(1):""}</div>}
-                          </div>
-                          {/* Fundamentals */}
-                          <div style={{background:"#070D1A",borderRadius:8,padding:12}}>
-                            <div style={{fontSize:12,color:C.yellow,fontWeight:700,marginBottom:8}}>💰 Fundamentals</div>
-                            {[["EPS",s.eps],["P/E",s.pe>0?s.pe:"Negative"],["NAV",s.nav],["P/NAV",(s.nav>0?s.price/s.nav:0).toFixed(1)+"x"],["Div",s.div+"%"],["Inst",s.inst+"%"],["6M Ret",s.ret6m+"%"]].map(([l,v])=>(
-                              <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:2}}><span style={{color:C.muted}}>{l}</span><span style={{color:C.text,fontWeight:600}}>{v}</span></div>
-                            ))}
-                            {s.str.holdNote&&<div style={{marginTop:6,fontSize:11,color:C.purple,fontWeight:600}}>👤{s.str.holdNote}</div>}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ══ PORTFOLIO ══ */}
-        {tab==="portfolio"&&(
-          <div>
-            {/* Summary */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10,marginBottom:14}}>
-              {[["মোট Investment","৳"+summ.tc.toLocaleString("en",{maximumFractionDigits:0}),"#4FC3F7"],["Current Value","৳"+summ.tv.toLocaleString("en",{maximumFractionDigits:0}),C.accent],["Unrealized",(summ.tpl>=0?"+":"")+"৳"+summ.tpl.toFixed(0),summ.tpl>=0?C.accent:C.red],["Realized","৳"+summ.tr.toFixed(0),C.yellow]].map(([l,v,cl])=>(
-                <div key={l} style={{...card(),padding:12,textAlign:"center"}}><div style={{fontSize:11,color:C.muted,marginBottom:4}}>{l}</div><div style={{fontSize:17,fontWeight:800,color:cl}}>{v}</div></div>
-              ))}
-            </div>
-
-            {/* Broker */}
-            <div style={{...card(),padding:12,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
-                <div style={{fontWeight:700,color:C.accent,fontSize:13}}>🏦 Broker-wise</div>
-                <div style={{fontSize:11,color:C.muted}}>📤 Export → Claude এ paste → update → Import</div>
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                {Object.entries(summ.byB).map(([br,d])=>{
-                  const brPos=port.filter(p=>p.broker===br);
-                  const exportJ=JSON.stringify(brPos.map(p=>({stock:p.stock,broker:p.broker,shares:p.shares,buyRate:p.buyRate,currentPrice:p.currentPrice,target1:p.target1,target2:p.target2,stopLoss:p.stopLoss})),null,2);
-                  return(
-                    <div key={br} style={{background:"#070D1A",borderRadius:8,padding:"10px 14px",border:"1px solid "+C.border}}>
-                      <div style={{fontWeight:700,color:"#4FC3F7",fontSize:12}}>{br}</div>
-                      <div style={{fontSize:11,color:C.muted}}>{d.n} pos</div>
-                      <div style={{fontSize:12,fontWeight:700,color:(d.val-d.cost)>=0?C.accent:C.red,marginBottom:6}}>{(d.val-d.cost)>=0?"+":""}৳{(d.val-d.cost).toFixed(0)}</div>
-                      <button onClick={()=>{if(navigator.clipboard){navigator.clipboard.writeText(exportJ).then(()=>showToast("✅ "+br+" JSON copied!")).catch(()=>{setPortPasteCode(exportJ);setShowPortPaste(true);});}else{setPortPasteCode(exportJ);setShowPortPaste(true);}}}
-                        style={{padding:"3px 8px",background:C.purple+"22",color:C.purple,border:"none",borderRadius:4,fontSize:10,fontWeight:700,cursor:"pointer",width:"100%"}}>📤 Export</button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div style={{fontWeight:700,fontSize:14}}>💼 Positions ({port.length}) · {days}d strategy</div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{setShowPortPaste(!showPortPaste);setShowAddP(false);}} style={btn(C.purple,showPortPaste)}>📋 JSON Import</button>
-                <button onClick={()=>{setShowAddP(!showAddP);setShowPortPaste(false);}} style={btn(C.blue,showAddP)}>+ Manual যোগ</button>
-              </div>
-            </div>
-
-            {/* Port Paste */}
-            {showPortPaste&&(
-              <div style={{...card(),padding:20,marginBottom:12,border:"1px solid "+C.purple}}>
-                <div style={{fontWeight:700,color:"#CE93D8",fontSize:15,marginBottom:6}}>📋 Portfolio JSON Import</div>
-                <div style={{fontSize:12,color:C.muted,marginBottom:12}}>
-                  Claude কে বলুন: <span style={{color:"#CE93D8",fontWeight:700}}>"আমার Ecosoft এ EPGL ৭৩০০ শেয়ার ১৯.২৬ টাকায় — JSON দাও"</span>
-                </div>
-                <div style={{background:"#070D1A",borderRadius:8,padding:10,marginBottom:12,fontSize:11}}>
-                  <div style={{color:C.yellow,fontWeight:700,marginBottom:4}}>📌 Single:</div>
-                  <div style={{color:"#CE93D8",fontFamily:"monospace"}}>{"{"}"stock":"EPGL","broker":"Ecosoft","shares":7300,"buyRate":19.26{"}"}</div>
-                  <div style={{color:C.yellow,fontWeight:700,marginTop:8,marginBottom:4}}>📌 Batch:</div>
-                  <div style={{color:"#CE93D8",fontFamily:"monospace"}}>[{"{"}"stock":"EPGL","shares":7300,"buyRate":19.26{"}"},{"{"}"stock":"LOVELLO","shares":9630{"}"} ]</div>
-                </div>
-                <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}>
-                  <span style={{fontSize:12,color:C.muted}}>Default Broker:</span>
-                  <select value={portPasteBroker} onChange={e=>setPortPasteBroker(e.target.value)} style={inp()}>
-                    {BROKERS.map(b=><option key={b}>{b}</option>)}
-                  </select>
-                </div>
-                <textarea value={portPasteCode} onChange={e=>{setPortPasteCode(e.target.value);setPortPasteErr("");}}
-                  placeholder="এখানে JSON paste করুন..."
-                  style={{width:"100%",height:130,background:"#070D1A",border:"1px solid "+(portPasteErr?"#F44336":C.purple+"44"),borderRadius:8,color:"#CE93D8",padding:12,fontSize:13,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
-                {portPasteErr&&<div style={{color:C.red,fontSize:12,marginTop:6,fontWeight:600}}>{portPasteErr}</div>}
-                <div style={{display:"flex",gap:8,marginTop:10}}>
-                  <button onClick={applyPortPaste} style={btn(C.purple,true)}>✅ Apply</button>
-                  <button onClick={()=>{setShowPortPaste(false);setPortPasteCode("");setPortPasteErr("");}} style={btn(C.muted)}>বাতিল</button>
-                </div>
-              </div>
-            )}
-
-            {/* Manual Add */}
-            {showAddP&&(
-              <div style={{...card(),padding:16,marginBottom:12,border:"1px solid "+C.blue}}>
-                <div style={{fontWeight:700,color:C.blue,marginBottom:12,fontSize:14}}>নতুন Position</div>
-                <div style={{marginBottom:12}}><StockSearch stocks={stocks} value={npSearch} onChange={v=>{setNpSearch(v);setNp(p=>Object.assign({},p,{stock:v}));}} onSelect={selectStockForPort}/></div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:10}}>
-                  {[["shares","Shares*"],["buyRate","Buy Rate*"],["target1","Target 1"],["target2","Target 2"],["stopLoss","Stop Loss"]].map(([k,l])=>(
-                    <div key={k}><div style={{fontSize:11,color:C.muted,marginBottom:3}}>{l}</div><input type="number" value={np[k]} onChange={e=>setNp(p=>Object.assign({},p,{[k]:e.target.value}))} style={{...inp({width:"100%",boxSizing:"border-box"})}}/></div>
-                  ))}
-                  <div><div style={{fontSize:11,color:C.muted,marginBottom:3}}>Broker</div><select value={np.broker} onChange={e=>setNp(p=>Object.assign({},p,{broker:e.target.value}))} style={inp({width:"100%"})}>{BROKERS.map(b=><option key={b}>{b}</option>)}</select></div>
-                </div>
-                {np.stock&&np.buyRate&&<div style={{fontSize:12,color:C.muted,marginBottom:10}}>Investment: <span style={{color:C.yellow,fontWeight:700}}>৳{((+np.shares||0)*(+np.buyRate||0)).toLocaleString()}</span></div>}
-                <div style={{display:"flex",gap:8}}><button onClick={addPosition} style={btn(C.accent,true)}>✅ যোগ</button><button onClick={()=>{setShowAddP(false);setNpSearch("");}} style={btn(C.muted)}>বাতিল</button></div>
-              </div>
-            )}
-
-            {/* Portfolio List */}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {enriched.map(p=>{
-                const sData=p.sData;const str=p.str;
-                return(
-                  <div key={p.id} style={{...card(),border:"1px solid "+(p.sig.includes("STOP")?C.red:p.sig.includes("SELL")?C.accent:C.border)}}>
-                    <div style={{padding:14}}>
-                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
-                        <div style={{flex:1}}>
-                          <div style={{fontWeight:800,fontSize:15,color:"#fff"}}>{p.stock} <span style={{fontSize:11,color:C.muted,fontWeight:400}}>{p.broker}</span></div>
-                          <div style={{fontSize:11,color:C.muted,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:2}}>
-                            <span>{p.shares.toLocaleString()} shares · Buy ৳{p.buyRate}</span>
-                            {sData&&(()=>{const st=staleness(sData.updatedAt);return <span style={{color:st.color,fontWeight:600}}>· {st.label}</span>;})()}
-                            {p.isTSLActive&&<span style={{color:C.orange,fontWeight:700,fontSize:10}}>🔒 TSL Active</span>}
-                            {sData&&sData.str&&<span style={{color:sData.str.maSignal.includes("🟢")?C.accent:C.yellow,fontSize:10}}>{sData.str.maSignal}</span>}
-                          </div>
-                        </div>
-                        <div style={{textAlign:"center"}}><div style={{fontWeight:800,fontSize:15,color:p.pl>=0?C.accent:C.red}}>{p.pl>=0?"+":""}৳{p.pl.toFixed(0)}</div><div style={{fontSize:11,color:p.pl>=0?C.accent:C.red}}>{p.plp.toFixed(1)}%</div></div>
-                        <div style={{background:p.sig.includes("STOP")?C.red+"22":p.sig.includes("SELL")?C.accent+"22":C.muted+"22",border:"1px solid "+(p.sig.includes("STOP")?C.red:p.sig.includes("SELL")?C.accent:C.muted)+"44",borderRadius:8,padding:"5px 10px",fontWeight:700,fontSize:12,color:p.sig.includes("STOP")?C.red:p.sig.includes("SELL")?C.accent:C.muted}}>{p.sig}</div>
-                        <div style={{fontSize:11,fontWeight:700,color:str.risk.includes("LOW")?C.accent:str.risk.includes("HIGH")?C.red:C.yellow}}>{str.risk}</div>
-                        <div style={{display:"flex",gap:5}}>
-                          <button onClick={()=>setEditPort(editPort===p.id?null:p.id)} style={btn(C.yellow,editPort===p.id,true)}>✏️</button>
-                          <SellModal pos={p} onSell={recordSell}/>
-                          <button onClick={()=>confirmDelete(p)} style={btn(C.red,false,true)}>✕</button>
-                        </div>
-                      </div>
-                      {editPort===p.id?(
-                        <div style={{background:"#070D1A",borderRadius:8,padding:10,marginTop:4}}>
-                          <div style={{fontSize:11,color:C.yellow,fontWeight:700,marginBottom:8}}>✏️ Update:</div>
-                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
-                            <Field label="Current Price" value={p.currentPrice} onChange={v=>updatePort(p.id,"currentPrice",v)} width={88}/>
-                            <Field label="Target 1" value={p.target1} onChange={v=>updatePort(p.id,"target1",v)} width={78}/>
-                            <Field label="Target 2" value={p.target2} onChange={v=>updatePort(p.id,"target2",v)} width={78}/>
-                            <Field label="Stop Loss" value={p.stopLoss} onChange={v=>updatePort(p.id,"stopLoss",v)} width={78}/>
-                            <button onClick={()=>{setEditPort(null);showToast("✅ "+p.stock+" saved!");}} style={{...btn(C.accent,true),marginBottom:2}}>✅ Save</button>
-                          </div>
-                        </div>
-                      ):(
-                        <div>
-                          <div style={{display:"flex",gap:12,fontSize:12,marginBottom:4,flexWrap:"wrap"}}>
-                            <span style={{color:C.muted}}>T1: <span style={{color:C.accent,fontWeight:700}}>৳{str.t1||p.target1}</span> <span style={{color:C.muted,fontSize:10}}>({str.sellT1}%)</span></span>
-                            <span style={{color:C.muted}}>T2: <span style={{color:C.accent,fontWeight:700}}>৳{str.t2||p.target2}</span> <span style={{color:C.muted,fontSize:10}}>({str.sellT2}%)</span></span>
-                            {str.t3&&<span style={{color:C.muted}}>T3: <span style={{color:C.accent,fontWeight:700}}>৳{str.t3}</span></span>}
-                            <span style={{color:C.muted}}>SL: <span style={{color:C.red,fontWeight:700}}>৳{p.stopLoss}</span></span>
-                            {p.isTSLActive&&<span style={{color:C.orange,fontWeight:700}}>🔒 TSL: ৳{p.tsl.toFixed(2)} (profit locked!)</span>}
-                            <span style={{color:C.muted}}>Cost: ৳{p.cost.toFixed(0)}</span>
-                          </div>
-                          <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}><span style={{color:C.orange,fontWeight:600}}>💡 </span>{str.sellStr}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ══ TRADES ══ */}
-        {tab==="trades"&&(
-          <div>
-            <div style={{...card(),padding:14,marginBottom:14,display:"flex",gap:20,flexWrap:"wrap"}}>
-              {[["Trades",trades.length,"#4FC3F7"],["Realized","৳"+summ.tr.toFixed(0),summ.tr>=0?C.accent:C.red],["✅",trades.filter(t=>t.profit>0).length,C.accent],["🔴",trades.filter(t=>t.profit<0).length,C.red]].map(([l,v,cl])=>(
-                <div key={l} style={{textAlign:"center"}}><div style={{fontSize:11,color:C.muted}}>{l}</div><div style={{fontSize:22,fontWeight:800,color:cl}}>{v}</div></div>
-              ))}
-            </div>
-            {trades.length===0?<div style={{...card(),padding:60,textAlign:"center"}}><div style={{fontSize:40}}>📋</div><div style={{color:C.muted,marginTop:12}}>Portfolio থেকে sell করলে এখানে দেখাবে।</div></div>:(
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {[...trades].reverse().map(t=>(
-                  <div key={t.id} style={{...card(),padding:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                    <div style={{fontWeight:800,color:"#fff",minWidth:90}}>{t.stock}</div>
-                    <span style={{background:C.blue+"22",color:C.blue,borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{t.broker}</span>
-                    <div style={{fontSize:12,color:C.muted}}>Buy ৳{t.buyRate} → Sell ৳{t.sellPrice} · {t.sellShares} shares</div>
-                    <div style={{marginLeft:"auto",fontWeight:800,fontSize:15,color:t.profit>=0?C.accent:C.red}}>{t.profit>=0?"+":""}৳{t.profit.toFixed(0)}</div>
-                    <div style={{fontSize:11,color:C.muted}}>{t.date}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ══ RISK ══ */}
-        {tab==="risk"&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:14}}>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:C.red,marginBottom:10,fontSize:14}}>🚨 Stop Loss Alert (TSL সহ)</div>
-              {enriched.filter(p=>p.currentPrice<=p.effectiveSL*1.05).map(p=>(
-                <div key={p.id} style={{background:C.red+"12",border:"1px solid "+C.red+"30",borderRadius:8,padding:10,marginBottom:8}}>
-                  <div style={{fontWeight:700,color:C.red}}>{p.stock} — {p.broker}</div>
-                  <div style={{fontSize:12,color:C.muted}}>৳{p.currentPrice} · SL: ৳{p.stopLoss} {p.isTSLActive&&"· TSL: ৳"+p.tsl.toFixed(2)}</div>
-                </div>
-              ))}
-              {enriched.filter(p=>p.currentPrice<=p.effectiveSL*1.05).length===0&&<div style={{color:C.accent,fontSize:13}}>✅ সব নিরাপদ</div>}
-            </div>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:C.orange,marginBottom:10,fontSize:14}}>🔒 Trailing SL Active</div>
-              {enriched.filter(p=>p.isTSLActive).map(p=>(
-                <div key={p.id} style={{background:C.orange+"12",border:"1px solid "+C.orange+"30",borderRadius:8,padding:10,marginBottom:8}}>
-                  <div style={{fontWeight:700,color:C.orange}}>{p.stock} — {p.broker}</div>
-                  <div style={{fontSize:12,color:C.muted}}>Buy: ৳{p.buyRate} · TSL: ৳{p.tsl.toFixed(2)} (Profit locked!)</div>
-                  <div style={{fontSize:12,color:C.accent}}>Current: ৳{p.currentPrice} · Gain: ৳{p.pl.toFixed(0)}</div>
-                </div>
-              ))}
-              {enriched.filter(p=>p.isTSLActive).length===0&&<div style={{color:C.muted,fontSize:13}}>কোনো position T1 touch করেনি এখনো</div>}
-            </div>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:14}}>🎯 Target Hit</div>
-              {enriched.filter(p=>p.currentPrice>=(str=>str.t1||p.target1)(p.str)).map(p=>(
-                <div key={p.id} style={{background:C.accent+"12",border:"1px solid "+C.accent+"30",borderRadius:8,padding:10,marginBottom:8}}>
-                  <div style={{fontWeight:700,color:C.accent}}>{p.stock} — {p.broker}</div>
-                  <div style={{fontSize:12,color:C.muted}}>৳{p.currentPrice} · T1: ৳{p.str.t1||p.target1}</div>
-                  <div style={{fontSize:12,color:C.accent,fontWeight:700}}>+৳{p.pl.toFixed(0)} সম্ভব</div>
-                </div>
-              ))}
-              {enriched.filter(p=>p.currentPrice>=(p.str.t1||p.target1)).length===0&&<div style={{color:C.muted,fontSize:13}}>Target hit হয়নি</div>}
-            </div>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:C.yellow,marginBottom:10,fontSize:14}}>🧮 Tax + Commission</div>
-              {[["Realized","৳"+summ.tr.toFixed(0)],["Tax 10%","৳"+(summ.tr*0.1).toFixed(0)],["Net","৳"+(summ.tr*0.9).toFixed(0)],["Commission","৳"+enriched.reduce((a,p)=>a+p.cost*COMM,0).toFixed(0)]].map(([l,v])=>(
-                <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5,padding:"4px 0",borderBottom:"1px solid "+C.border}}><span style={{color:C.muted}}>{l}</span><span style={{fontWeight:700}}>{v}</span></div>
-              ))}
-            </div>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:"#4FC3F7",marginBottom:10,fontSize:14}}>📊 Portfolio Overview</div>
-              <div style={{fontSize:13,marginBottom:5,color:C.muted}}>P&L: <span style={{color:summ.tpl>=0?C.accent:C.red,fontWeight:700}}>{summ.tpl>=0?"+":""}৳{summ.tpl.toFixed(0)}</span></div>
-              <div style={{fontSize:13,marginBottom:5,color:C.muted}}>Return: <span style={{color:summ.tpl>=0?C.accent:C.red,fontWeight:700}}>{summ.tc>0?((summ.tpl/summ.tc)*100).toFixed(1):0}%</span></div>
-              <div style={{fontSize:13,color:C.muted}}>Loss এ: <span style={{color:C.red,fontWeight:700}}>{enriched.filter(p=>p.pl<0).length} pos</span></div>
-              <div style={{fontSize:13,color:C.muted,marginTop:4}}>Profit এ: <span style={{color:C.accent,fontWeight:700}}>{enriched.filter(p=>p.pl>=0).length} pos</span></div>
-              <div style={{fontSize:13,color:C.muted,marginTop:4}}>TSL Active: <span style={{color:C.orange,fontWeight:700}}>{enriched.filter(p=>p.isTSLActive).length} pos</span></div>
-            </div>
-            <div style={{...card(),padding:16}}>
-              <div style={{fontWeight:700,color:"#4FC3F7",marginBottom:10,fontSize:14}}>⏱️ Update Status</div>
-              {stocks.map(s=>{const st=staleness(s.updatedAt);return(
-                <div key={s.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
-                  <span style={{color:C.text,fontWeight:600}}>{s.name}</span>
-                  <span style={{color:st.color}}>{st.label}</span>
-                </div>
-              );})}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+  const calcBollingerBands = (closes, period, mult) => {
+    period = period || 20; mult = mult || 2;
+    if (!closes || closes.length < period) return null;
+    const slice = closes.slice(-period);
+    const sma = slice.reduce((a,b)=>a+b,0) / period;
+    const variance = s
