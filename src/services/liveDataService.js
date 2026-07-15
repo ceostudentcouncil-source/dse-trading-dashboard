@@ -1,15 +1,8 @@
 import { TODAY } from "../constants.js";
 
 // ══════════════════════════════════════════════════════════════
-// LIVE DSE DATA SERVICE
-// Fetches closing prices via allorigins proxy (bypasses CORS).
-// Designed to be called from a component with its state setters
-// passed in as `ctx` — keeps this file framework-agnostic.
-//
-// ctx = {
-//   stocks, setStocks, persist, showToast,
-//   setLiveLoading, setLiveStatus, setLiveUpdatedAt
-// }
+// LIVE DSE DATA SERVICE (DIRECT PYTHON CONNECT)
+// পাইথন স্ক্রিপ্ট থেকে সরাসরি লাইভ ডাটা লোড করার জন্য মডিফাইড
 // ══════════════════════════════════════════════════════════════
 
 export async function fetchLiveData(ctx) {
@@ -17,63 +10,51 @@ export async function fetchLiveData(ctx) {
 
   setLiveLoading(true);
   setLiveStatus(null);
-  showToast("⏳ DSE থেকে data আনছি...");
+  showToast("⏳ পাইথন সার্ভার থেকে লাইভ ডাটা আনছি...");
+
+  // আপনার পাইথন কোডে যে KVDB লিংকটি ব্যবহার করেছেন সেটি এখানে দিন
+  const apiUrl = "https://kvdb.io/MN9vjH6XyJt5bQ4r7BvZ2a/dse_live_data";
 
   try {
-    const stockNames = stocks.map(s => s.name);
-    let successCount = 0;
-    const updatedStocks = [...stocks];
+    // সরাসরি আমাদের ফ্রি এপিআই থেকে এক ক্লিকে সব ডাটা নিয়ে আসা হচ্ছে
+    const resp = await fetch(apiUrl);
+    if (!resp.ok) throw new Error("সার্ভার থেকে ডাটা পাওয়া যায়নি");
+    
+    const pythonStocks = await resp.json();
 
-    for (let i = 0; i < stockNames.length; i++) {
-      const sym = stockNames[i];
-      try {
-        const url = "https://api.allorigins.win/get?url=" + encodeURIComponent(
-          "https://www.dsebd.org/api/latest-share-price-all-by-symbol.json?symbol=" + sym
-        );
-        const resp = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
-        if (!resp.ok) continue;
-        const wrapper = await resp.json();
-        const data = JSON.parse(wrapper.contents);
-
-        if (data && (data.latest || data.data)) {
-          const d = data.latest || data.data || data;
-          const price = parseFloat(d.ltp || d.last_trade_price || d.close || d.closingPrice || 0);
-          const vol = parseInt(d.volume || d.total_volume || 0);
-          const change = parseFloat(d.change || d.price_change || 0);
-          const changePct = parseFloat(d.change_percent || d.percent_change || 0);
-          const ycp = parseFloat(d.ycp || d.yesterday_closing_price || 0);
-
-          if (price > 0) {
-            const idx = updatedStocks.findIndex(s => s.name === sym);
-            if (idx >= 0) {
-              updatedStocks[idx] = {
-                ...updatedStocks[idx],
-                price, vol: vol || updatedStocks[idx].vol,
-                updatedAt: TODAY, liveChange: change, liveChangePct: changePct, ycp,
-              };
-              successCount++;
-            }
-          }
+    if (pythonStocks && Array.isArray(pythonStocks) && pythonStocks.length > 0) {
+      
+      // পাইথন থেকে আসা নতুন ডাটা দিয়ে অ্যাপের বর্তমান স্টক লিস্ট আপডেট করা
+      const updatedStocks = stocks.map(currentStock => {
+        // পাইথনের ডাটার সাথে নাম ম্যাচ করানো হচ্ছে
+        const newLiveStock = pythonStocks.find(ps => ps.name.toUpperCase() === currentStock.name.toUpperCase());
+        
+        if (newLiveStock) {
+          // যদি পাইথনে এই স্টকের নতুন ডাটা থাকে, তবে সেটা বসবে
+          return {
+            ...currentStock,
+            ...newLiveStock, // পাইথনের পাঠানো rsi, macd, price, bb_upper সব এখানে ইনজেক্ট হবে
+            updatedAt: TODAY
+          };
         }
-      } catch (e) {
-        console.log("Skip " + sym + ": " + e.message);
-      }
-      await new Promise(r => setTimeout(r, 200));
-    }
+        return currentStock; // ম্যাচ না করলে আগেরটাই থাকবে
+      });
 
-    if (successCount > 0) {
+      // অ্যাপের স্টেট এবং লোকাল স্টোরেজে ডাটা সেভ করা
       setStocks(updatedStocks);
       persist(updatedStocks, null, null);
+      
       setLiveStatus("ok");
       setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
-      showToast("✅ " + successCount + "টি stock এর data আপডেট হয়েছে!");
+      showToast("✅ পাইথন লাইভ ডাটা সফলভাবে সিঙ্ক হয়েছে!");
+      
     } else {
-      await fetchLiveDataFallback(ctx);
+      throw new Error("ফাঁকা ডাটা এসেছে");
     }
   } catch (e) {
     console.error("Live fetch error:", e);
-    setLiveStatus("error");
-    showToast("❌ Data আনতে সমস্যা। পরে try করুন।", "err");
+    // যদি কোনো কারণে KVDB এপিআই কাজ না করে, তবে আপনার আগের পুরনো ফলব্যাক রান করবে
+    await fetchLiveDataFallback(ctx);
   }
   setLiveLoading(false);
 }
@@ -123,7 +104,7 @@ export async function fetchLiveDataFallback(ctx) {
       showToast("✅ " + count + "টি stock updated (fallback)!");
     } else {
       setLiveStatus("error");
-      showToast("❌ DSE API response পাওয়া যায়নি।", "err");
+      showToast("❌ DSE API response পাওয়া যায়নি।", "err");
     }
   } catch (e) {
     setLiveStatus("error");
