@@ -3,49 +3,69 @@ import { TODAY } from "../constants.js";
 export async function fetchLiveData(ctx) {
   const { stocks, setStocks, persist, showToast, setLiveLoading, setLiveStatus, setLiveUpdatedAt } = ctx;
 
-  setLiveLoading(true);
-  setLiveStatus(null);
-  showToast("⏳ ওপেন ক্লাউড থেকে লাইভ ডাটা লোড হচ্ছে...");
+  // ব্রাউজারে ফাইল ইনপুট তৈরি করা (CORS বাইপাস ও লোকাল ইমপোর্টের জন্য)
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".json";
 
-  // কোনো টোকেন ছাড়া ওপেন রিড লিংক (Vercel ও ব্রাউজার ফ্রেন্ডলি)
-  const apiUrl = "https://api.jsonbin.io/v3/b/66183610ad19ca34f8582d90";
+  fileInput.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  try {
-    const resp = await fetch(apiUrl, {
-      headers: { "X-Bin-Meta": "false" }
-    });
-    if (!resp.ok) throw new Error("সার্ভার থেকে ডাটা রেসপন্স করেনি");
-    
-    const pythonStocks = await resp.json();
+    setLiveLoading(true);
+    setLiveStatus(null);
+    showToast("⏳ লোকাল ফাইল থেকে ৩৮৭টি স্টক ইমপোর্ট করা হচ্ছে...");
 
-    if (pythonStocks && Array.isArray(pythonStocks) && pythonStocks.length > 0) {
-      
-      const updatedStocks = stocks.map(currentStock => {
-        const newLiveStock = pythonStocks.find(ps => ps.name.toUpperCase() === currentStock.name.toUpperCase());
-        
-        if (newLiveStock) {
-          return {
-            ...currentStock,
-            ...newLiveStock,
-            updatedAt: TODAY
-          };
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const pythonStocks = JSON.parse(event.target.result);
+
+        if (pythonStocks && Array.isArray(pythonStocks) && pythonStocks.length > 0) {
+          
+          // নতুন স্টকগুলো যুক্ত করা এবং পুরনো স্টকগুলোর ডাটা আপডেট করার স্মার্ট কম্বিনেশন
+          const updatedStocks = [...stocks];
+
+          pythonStocks.forEach(newStock => {
+            const existingIndex = updatedStocks.findIndex(s => s.name.toUpperCase() === newStock.name.toUpperCase());
+            
+            if (existingIndex !== -1) {
+              // স্টক অলরেডি থাকলে ডাটা আপডেট করো
+              updatedStocks[existingIndex] = {
+                ...updatedStocks[existingIndex],
+                ...newStock,
+                updatedAt: TODAY
+              };
+            } else {
+              // স্টক না থাকলে পুরো ৩৮৭টির নতুন মেম্বার হিসেবে অ্যাপে পুশ করো
+              updatedStocks.push({
+                ...newStock,
+                updatedAt: TODAY
+              });
+            }
+          });
+
+          // ড্যাশবোর্ড স্টেট ও পারসিস্ট্যান্স আপডেট
+          setStocks(updatedStocks);
+          persist(updatedStocks, null, null);
+          
+          setLiveStatus("ok");
+          setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
+          showToast(`✅ সফলভাবে ${pythonStocks.length}টি স্টক সিঙ্ক ও যুক্ত হয়েছে!`);
+          
+        } else {
+          throw new Error("ফাইলটি খালি অথবা ইনভ্যালিড ফরম্যাট");
         }
-        return currentStock; 
-      });
+      } catch (err) {
+        console.error(err);
+        showToast("❌ ফাইল রিড করতে সমস্যা হয়েছে!", "err");
+        setLiveStatus("error");
+      }
+      setLiveLoading(false);
+    };
+    reader.readAsText(file);
+  };
 
-      setStocks(updatedStocks);
-      persist(updatedStocks, null, null);
-      
-      setLiveStatus("ok");
-      setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
-      showToast("✅ পাইথন লাইভ ডাটা সফলভাবে ড্যাশবোর্ডে সিঙ্ক হয়েছে!");
-      
-    } else {
-      throw new Error("ফাঁকা ডাটা এসেছে");
-    }
-  } catch (e) {
-    console.error("Live fetch error:", e);
-    await fetchLiveDataFallback(ctx);
-  }
-  setLiveLoading(false);
+  // ফাইল ডায়ালগ বক্সটি ওপেন করা
+  fileInput.click();
 }
