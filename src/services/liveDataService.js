@@ -1,8 +1,7 @@
 import { TODAY } from "../constants.js";
 
 // ══════════════════════════════════════════════════════════════
-// LIVE DSE DATA SERVICE (DIRECT PYTHON CONNECT)
-// পাইথন স্ক্রিপ্ট থেকে সরাসরি লাইভ ডাটা লোড করার জন্য মডিফাইড
+// LIVE DSE DATA SERVICE (LOCAL ST STORAGE CONNECT)
 // ══════════════════════════════════════════════════════════════
 
 export async function fetchLiveData(ctx) {
@@ -10,50 +9,46 @@ export async function fetchLiveData(ctx) {
 
   setLiveLoading(true);
   setLiveStatus(null);
-  showToast("⏳ পাইথন সার্ভার থেকে লাইভ ডাটা আনছি...");
-
-  // আপনার পাইথন কোডে যে KVDB লিংকটি ব্যবহার করেছেন সেটি এখানে দিন
-  const apiUrl = "https://kvdb.io/MN9vjH6XyJt5bQ4r7BvZ2a/dse_live_data";
+  showToast("⏳ লোকাল স্টোরেজ থেকে লাইভ ডাটা লোড করছি...");
 
   try {
-    // সরাসরি আমাদের ফ্রি এপিআই থেকে এক ক্লিকে সব ডাটা নিয়ে আসা হচ্ছে
-    const resp = await fetch(apiUrl);
-    if (!resp.ok) throw new Error("সার্ভার থেকে ডাটা পাওয়া যায়নি");
+    // পাইথন স্ক্রিপ্ট যেখানে ফাইলটি সেভ করেছে, ঠিক সেই পাথ
+    const fileUrl = "/storage/emulated/0/Download/dse_data.json";
+    
+    const resp = await fetch(fileUrl);
+    if (!resp.ok) throw new Error("লোকাল ডাটা ফাইলটি খুঁজে পাওয়া যায়নি। আগে পাইথন রান করুন।");
     
     const pythonStocks = await resp.json();
 
     if (pythonStocks && Array.isArray(pythonStocks) && pythonStocks.length > 0) {
       
-      // পাইথন থেকে আসা নতুন ডাটা দিয়ে অ্যাপের বর্তমান স্টক লিস্ট আপডেট করা
       const updatedStocks = stocks.map(currentStock => {
-        // পাইথনের ডাটার সাথে নাম ম্যাচ করানো হচ্ছে
         const newLiveStock = pythonStocks.find(ps => ps.name.toUpperCase() === currentStock.name.toUpperCase());
         
         if (newLiveStock) {
-          // যদি পাইথনে এই স্টকের নতুন ডাটা থাকে, তবে সেটা বসবে
           return {
             ...currentStock,
-            ...newLiveStock, // পাইথনের পাঠানো rsi, macd, price, bb_upper সব এখানে ইনজেক্ট হবে
+            ...newLiveStock, // পাইথন ফাইলের ফ্রেশ প্রাইস, RSI, MACD, অ্যানালাইসিস নোট সব লোড হবে
             updatedAt: TODAY
           };
         }
-        return currentStock; // ম্যাচ না করলে আগেরটাই থাকবে
+        return currentStock; 
       });
 
-      // অ্যাপের স্টেট এবং লোকাল স্টোরেজে ডাটা সেভ করা
+      // অ্যাপের মূল ডাটা স্টেট ও লোকাল স্টোরেজ আপডেট
       setStocks(updatedStocks);
       persist(updatedStocks, null, null);
       
       setLiveStatus("ok");
       setLiveUpdatedAt(new Date().toLocaleTimeString("bn-BD"));
-      showToast("✅ পাইথন লাইভ ডাটা সফলভাবে সিঙ্ক হয়েছে!");
+      showToast("✅ পাইথন লোকাল ডাটা সফলভাবে সিঙ্ক হয়েছে!");
       
     } else {
-      throw new Error("ফাঁকা ডাটা এসেছে");
+      throw new Error("ফাইলটি ফাঁকা ছিল");
     }
   } catch (e) {
     console.error("Live fetch error:", e);
-    // যদি কোনো কারণে KVDB এপিআই কাজ না করে, তবে আপনার আগের পুরনো ফলব্যাক রান করবে
+    // যদি কোনো কারণে লোকাল ফাইল সরাসরি রিড না হয়, তবে ব্যাকআপ হিসেবে অনলাইন ফলব্যাক ট্রাই করবে
     await fetchLiveDataFallback(ctx);
   }
   setLiveLoading(false);
