@@ -1,5 +1,5 @@
 // ── Admin Configuration ─────────────────────────────────────────
-export const ADMIN_EMAIL = "admin@sharemarket.com";
+export const ADMIN_EMAIL = "ceostudentcouncil@gmail.com";
 export const SUB_ADMIN_EMAILS = []; // add extra admin emails here
 
 export const isAdmin = (email) => email === ADMIN_EMAIL || SUB_ADMIN_EMAILS.includes(email);
