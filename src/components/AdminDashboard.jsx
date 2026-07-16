@@ -71,11 +71,16 @@ function AdminDashboard({adminUser,onClose}){
     // Next renewal = 1 month from today
     const next=new Date();next.setMonth(next.getMonth()+1);
     const nextDate=next.toISOString().split("T")[0];
+    // #7 fix: keep a running history of every payment (not just the
+    // latest) so monthly revenue can be reconstructed later.
+    const historyEntry={date:today,amount:+amount,recordedBy:adminUser.email};
+    const newHistory=[...(u.paymentHistory||[]),historyEntry];
     await updateUserProfile(u.id,{
       lastPaymentDate:today,
       lastPaymentAmount:+amount,
       nextRenewalDate:nextDate,
       isActive:true,
+      paymentHistory:newHistory,
     });
   };
 
@@ -157,8 +162,8 @@ function AdminDashboard({adminUser,onClose}){
                           <div style={{fontWeight:700,color:"#fff",fontSize:14}}>{u.displayName||"No name"}</div>
                           <div style={{fontSize:11,color:C.muted}}>{u.email}</div>
                           <div style={{fontSize:10,display:"flex",gap:8,marginTop:2}}>
-                            {u.bkash&&<span style={{color:C.yellow}}>💳 {u.bkash}</span>} 
- {u.whatsapp&&<span style={{color:C.accent}}>📱 {u.whatsapp}</span>}
+                            {u.bkash&&<span style={{color:C.yellow}}>💳 {u.bkash}</span>}
+                            {u.whatsapp&&<span style={{color:C.accent}}>📱 {u.whatsapp}</span>}
                           </div>
                         </div>
                         <div style={{textAlign:"right"}}>
@@ -182,8 +187,8 @@ function AdminDashboard({adminUser,onClose}){
                     <div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
                     <button onClick={()=>{setSelected(null);setSelectedData(null);}} style={btn(C.muted,false,true)}>✕</button>
                   </div>
-                  {/* Profile Info */}
-                  <div style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:12}}>
+                  {/* Profile Info */} 
+<div style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:12}}>
                     {[["Email",selected.email],["WhatsApp",selected.whatsapp||"—"],["বিকাশ",selected.bkash||"—"],["Join Date",selected.joinDate||"—"],["Monthly Fee","৳"+(selected.monthlyFee||1000)],["Last Payment",selected.lastPaymentDate||"—"],["Next Renewal",selected.nextRenewalDate||"—"]].map(([l,v])=>(
                       <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6}}>
                         <span style={{color:C.muted}}>{l}</span><span style={{color:C.text,fontWeight:600}}>{v}</span>
@@ -237,20 +242,67 @@ function AdminDashboard({adminUser,onClose}){
         )}
 
         {tab==="stats"&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-            {[
-              ["👥 Total Users",users.length,"#4FC3F7"],
-              ["✅ Active",users.filter(u=>u.isActive).length,C.accent],
-              ["🔴 Blocked",users.filter(u=>!u.isActive).length,C.red],
-              ["💳 This Month",users.filter(u=>u.lastPaymentDate&&u.lastPaymentDate.startsWith(new Date().toISOString().slice(0,7))).length,C.yellow],
-              ["⚠️ Expiring Soon",users.filter(u=>{if(!u.nextRenewalDate)return false;const d=new Date(u.nextRenewalDate);const now=new Date();return d>now&&(d-now)<7*86400000;}).length,C.orange],
-              ["💰 Total Revenue","৳"+users.reduce((a,u)=>a+(u.lastPaymentAmount||0),0).toLocaleString(),C.gold],
-            ].map(([l,v,cl])=>(
-              <div key={l} style={{...card(),padding:16,textAlign:"center"}}>
-                <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{l}</div>
-                <div style={{fontSize:24,fontWeight:800,color:cl}}>{v}</div>
-              </div>
-            ))}
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:16}}>
+              {[
+                ["👥 Total Users",users.length,"#4FC3F7"],
+                ["✅ Active",users.filter(u=>u.isActive).length,C.accent],
+                ["🔴 Blocked",users.filter(u=>!u.isActive).length,C.red],
+                ["💳 This Month",users.filter(u=>u.lastPaymentDate&&u.lastPaymentDate.startsWith(new Date().toISOString().slice(0,7))).length,C.yellow],
+                ["⚠️ Expiring Soon",users.filter(u=>{if(!u.nextRenewalDate)return false;const d=new Date(u.nextRenewalDate);const now=new Date();return d>now&&(d-now)<7*86400000;}).length,C.orange],
+                ["💰 Total Revenue","৳"+users.reduce((a,u)=>a+(u.lastPaymentAmount||0),0).toLocaleString(),C.gold],
+              ].map(([l,v,cl])=>(
+                <div key={l} style={{...card(),padding:16,textAlign:"center"}}>
+                  <div style={{fontSize:12,color:C.muted,marginBottom:6}}>{l}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:cl}}>{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* #7 fix: monthly (বিকাশ) revenue breakdown, built from each user's paymentHistory */}
+            {(()=>{
+              const monthly={};
+              users.forEach(u=>{
+                (u.paymentHistory||[]).forEach(p=>{
+                  const month=p.date?p.date.slice(0,7):null; // "YYYY-MM"
+                  if(!month)return;
+                  if(!monthly[month])monthly[month]={total:0,count:0,payments:[]};
+                  monthly[month].total+=(p.amount||0);
+                  monthly[month].count+=1;
+                  monthly[month].payments.push({...p,userName:u.displayName||u.email,userEmail:u.email});
+                });
+              });
+              const months=Object.keys(monthly).sort().reverse();
+              return(
+                <div style={{...card(),padding:16}}>
+                  <div style={{fontWeight:700,color:C.accent,marginBottom:12,fontSize:14}}>📅 মাস অনুযায়ী Revenue (বিকাশ Payment History)</div>
+                  {months.length===0?(
+                    <div style={{color:C.muted,fontSize:12}}>এখনো কোনো payment history নেই। নতুন payment update করলে এখানে দেখাবে।</div>
+                  ):months.map(m=>{
+                    const d=monthly[m];
+                    const label=new Date(m+"-01").toLocaleDateString("bn-BD",{year:"numeric",month:"long"});
+                    return(
+                      <div key={m} style={{background:"#070D1A",borderRadius:10,padding:14,marginBottom:10,border:"1px solid "+C.border}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div style={{fontWeight:700,color:"#4FC3F7",fontSize:13}}>{label}</div>
+                          <div style={{fontWeight:800,color:C.gold,fontSize:16}}>৳{d.total.toLocaleString()}</div>
+                        </div>
+                        <div style={{fontSize:11,color:C.muted,marginBottom:8}}>{d.count}টি payment</div>
+                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                          {d.payments.map((p,i)=>(
+                            <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"4px 8px",background:"#0A1628",borderRadius:6}}>
+                              <span style={{color:C.text}}>{p.userName}</span>
+                              <span style={{color:C.muted}}>{p.date}</span>
+                              <span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -322,4 +374,4 @@ function AdminDashboard({adminUser,onClose}){
   );
 }
 
-export default AdminDashboard;                           
+export default AdminDashboard;          
