@@ -27,15 +27,26 @@ import RiskTab from "./tabs/RiskTab.jsx";
 
 const SK = "dse-v7";
 
+// Collision-safe unique ID generator — fixes duplicate-key bug (#10)
+// where rapid Date.now() calls (manual add, batch paste) produced
+// identical IDs and caused React to open the wrong stock card.
+let _idCounter = 0;
+const uid = () => {
+  _idCounter += 1;
+  return Date.now() * 1000 + (_idCounter % 1000);
+};
+
 export default function App() {
   const sv = load(SK);
 
+  // -- Auth / Profile State --
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
+  // -- App Data State --
   const [tab, setTab] = useState("screener");
   const [stocks, setStocks] = useState((sv && sv.stocks) || INIT_STOCKS);
   const [port, setPort] = useState((sv && sv.port) || INIT_PORT);
@@ -43,6 +54,7 @@ export default function App() {
   const [days, setDays] = useState(7);
   const [customDays, setCustomDays] = useState("");
   const [sector, setSector] = useState("সব");
+  const [catFilter, setCatFilter] = useState("সব"); // #8 fix: category filter was missing
   const [sigF, setSigF] = useState("সব");
   const [nameFilter, setNameFilter] = useState("");
   const [sortBy, setSortBy] = useState("score");
@@ -74,6 +86,7 @@ export default function App() {
   const [np, setNp] = useState({ stock:"", broker:"Ecosoft", shares:"", buyRate:"", target1:"", target2:"", stopLoss:"", buyDate: TODAY, customSellTarget:"" });
   const [npSearch, setNpSearch] = useState("");
 
+  // -- Firebase Auth + Data Load --
   useEffect(() => {
     const unsub = onAuth(async (u) => {
       setUser(u);
@@ -132,7 +145,7 @@ export default function App() {
       const u = stocks.map((s) => (s.name.toUpperCase() === nm ? { ...s, ...ud, id: s.id } : s));
       setStocks(u); persist(u, null, null); showToast("✅ " + nm + " আপডেট!");
     } else {
-      const s = { id: Date.now(), cat:"A", sector:"অন্যান্য", eps:0, pe:0, nav:1, div:0, rsi:50, macd:0, vol:0, vma20:500000, ema20:0, sma50:0, ret6m:0, inst:0, circuit:0, totalShares:5000000, ...ud };
+      const s = { id: uid(), cat:"A", sector:"অন্যান্য", eps:0, pe:0, nav:1, div:0, rsi:50, macd:0, vol:0, vma20:500000, ema20:0, sma50:0, ret6m:0, inst:0, circuit:0, totalShares:5000000, ...ud };
       const u = [...stocks, s]; setStocks(u); persist(u, null, null); showToast("✅ " + nm + " যোগ হয়েছে!");
     }
   };
@@ -152,7 +165,7 @@ export default function App() {
     const exists = stocks.find((s) => s.name.toUpperCase() === nm);
     let u;
     if (exists) { u = stocks.map((s) => (s.name.toUpperCase() === nm ? { ...s, ...fields } : s)); showToast("✅ " + nm + " আপডেট!"); }
-    else { u = [...stocks, { id: Date.now(), name: nm, totalShares: 5000000, ...fields }]; showToast("✅ " + nm + " যোগ!"); }
+    else { u = [...stocks, { id: uid(), name: nm, totalShares: 5000000, ...fields }]; showToast("✅ " + nm + " যোগ!"); }
     setStocks(u); persist(u, null, null);
     setNs({ name:"", sector:"Bank", cat:"A", price:"", eps:"", pe:"", nav:"", div:"", rsi:"50", macd:"0", vol:"", vma20:"", ema20:"", sma50:"", ret6m:"", inst:"", circuit:"" });
     setNsSearch(""); setShowAddS(false);
@@ -166,7 +179,7 @@ export default function App() {
   const addPosition = () => {
     if (!np.stock || !np.shares || !np.buyRate) return;
     const br = +np.buyRate;
-    const p = { ...np, id: Date.now(), shares:+np.shares, buyRate: br, currentPrice: br, target1:+np.target1||(+(br*1.07).toFixed(2)), target2:+np.target2||(+(br*1.15).toFixed(2)), stopLoss:+np.stopLoss||(+(br*0.92).toFixed(2)), trailingSL:+np.stopLoss||(+(br*0.92).toFixed(2)), realized:0, buyDate: np.buyDate || TODAY, customSellTarget:+np.customSellTarget||null, withdrawals: [] };
+    const p = { ...np, id: uid(), shares:+np.shares, buyRate: br, currentPrice: br, target1:+np.target1||(+(br*1.07).toFixed(2)), target2:+np.target2||(+(br*1.15).toFixed(2)), stopLoss:+np.stopLoss||(+(br*0.92).toFixed(2)), trailingSL:+np.stopLoss||(+(br*0.92).toFixed(2)), realized:0, buyDate: np.buyDate || TODAY, customSellTarget:+np.customSellTarget||null, withdrawals: [] };
     const u = [...port, p]; setPort(u); persist(null, u, null);
     setNp({ stock:"", broker:"Ecosoft", shares:"", buyRate:"", target1:"", target2:"", stopLoss:"", buyDate: TODAY, customSellTarget:"" });
     setNpSearch(""); setShowAddP(false); showToast("✅ " + p.stock + " portfolio এ যোগ হয়েছে!");
@@ -179,7 +192,7 @@ export default function App() {
     const grossProfit = (sp - p.buyRate) * ss;
     const comm = (ss * p.buyRate + ss * sp) * commRate;
     const profit = grossProfit - comm;
-    const t = { id: Date.now(), stock: p.stock, broker: p.broker, buyRate: p.buyRate, sellPrice: sp, sellShares: ss, profit, commission: comm, date: new Date().toISOString().split("T")[0], withdrawals: [] };
+    const t = { id: uid(), stock: p.stock, broker: p.broker, buyRate: p.buyRate, sellPrice: sp, sellShares: ss, profit, commission: comm, date: new Date().toISOString().split("T")[0], withdrawals: [] };
     const ut = [...trades, t];
     const up = port.map((x) => (x.id === p.id ? { ...x, shares: x.shares - ss, realized: (x.realized || 0) + profit } : x)).filter((x) => x.shares > 0);
     setTrades(ut); setPort(up); persist(null, up, ut);
@@ -202,7 +215,7 @@ export default function App() {
           newPort[idx] = { ...newPort[idx], shares: item.shares !== undefined ? +item.shares : newPort[idx].shares, buyRate: br || newPort[idx].buyRate, target1: item.target1 ? +item.target1 : newPort[idx].target1, target2: item.target2 ? +item.target2 : newPort[idx].target2, stopLoss: item.stopLoss ? +item.stopLoss : newPort[idx].stopLoss };
           updated++;
         } else {
-          newPort.push({ id: Date.now() + Math.random(), stock: item.stock.toUpperCase(), broker, shares:+item.shares||0, buyRate: br, currentPrice: br, target1: item.target1?+item.target1:+(br*1.07).toFixed(2), target2: item.target2?+item.target2:+(br*1.15).toFixed(2), stopLoss: item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2), trailingSL: item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2), realized:0, buyDate: item.buyDate || TODAY, customSellTarget: null, withdrawals: [] });
+          newPort.push({ id: uid(), stock: item.stock.toUpperCase(), broker, shares:+item.shares||0, buyRate: br, currentPrice: br, target1: item.target1?+item.target1:+(br*1.07).toFixed(2), target2: item.target2?+item.target2:+(br*1.15).toFixed(2), stopLoss: item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2), trailingSL: item.stopLoss?+item.stopLoss:+(br*0.92).toFixed(2), realized:0, buyDate: item.buyDate || TODAY, customSellTarget: null, withdrawals: [] });
           added++;
         }
       });
@@ -238,13 +251,21 @@ export default function App() {
     let list = [...scored];
     if (nameFilter.trim()) list = list.filter((s) => s.name.toUpperCase().includes(nameFilter.trim().toUpperCase()));
     if (sector !== "সব") list = list.filter((s) => s.sector === sector);
+    if (catFilter !== "সব") list = list.filter((s) => s.cat === catFilter); // #8 fix
     if (sigF !== "সব") {
       const m = { "STRONG BUY": (s) => s.score >= 75, "BUY": (s) => s.score >= 60 && s.score < 75, "WATCH": (s) => s.score >= 45 && s.score < 60, "WEAK": (s) => s.score >= 30 && s.score < 45, "AVOID": (s) => s.score < 30 };
       list = list.filter(m[sigF] || ((_) => true));
     }
-    list.sort((a, b) => (sortBy === "score" ? b.score - a.score : sortBy === "rsi" ? a.rsi - b.rsi : sortBy === "vol" ? b.vol - a.vol : b.eps - a.eps));
+    // #9 fix: alphabetic (name) sort option added
+    list.sort((a, b) => {
+      if (sortBy === "score") return b.score - a.score;
+      if (sortBy === "rsi") return a.rsi - b.rsi;
+      if (sortBy === "vol") return b.vol - a.vol;
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      return b.eps - a.eps;
+    });
     return list;
-  }, [scored, sector, sigF, sortBy, days, nameFilter]);
+  }, [scored, sector, catFilter, sigF, sortBy, days, nameFilter]);
 
   const sigC = useMemo(() => {
     const c = { "STRONG BUY": 0, "BUY": 0, "WATCH": 0, "WEAK": 0, "AVOID": 0 };
@@ -379,6 +400,7 @@ export default function App() {
           <ScreenerTab
             stocks={stocks} filtered={filtered} sigC={sigC} portMap={portMap} days={days} chartData={chartData}
             nameFilter={nameFilter} setNameFilter={setNameFilter} sector={sector} setSector={setSector}
+            catFilter={catFilter} setCatFilter={setCatFilter}
             sigF={sigF} setSigF={setSigF} sortBy={sortBy} setSortBy={setSortBy}
             liveLoading={liveLoading}
             showAddS={showAddS} setShowAddS={setShowAddS} showPaste={showPaste} setShowPaste={setShowPaste}
