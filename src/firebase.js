@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCfWlWpPOW5igAZjRaLnWHHa7UcAFFnWcE",
@@ -37,6 +37,16 @@ export const fsSet = async (path, data, merge = true) => {
     return true;
   } catch (e) {
     console.log("fsSet error:", e);
+    return false;
+  }
+};
+
+export const fsDelete = async (path) => {
+  try {
+    await deleteDoc(doc(db, ...path.split("/")));
+    return true;
+  } catch (e) {
+    console.log("fsDelete error:", e);
     return false;
   }
 };
