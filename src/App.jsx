@@ -15,6 +15,7 @@ import LoginScreen from "./components/LoginScreen.jsx";
 import BlockedScreen from "./components/BlockedScreen.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
+import NotificationBanner from "./components/NotificationBanner.jsx";
 import PasteModal from "./components/PasteModal.jsx";
 import DeleteConfirm from "./components/DeleteConfirm.jsx";
 import BuyRankingPanel from "./components/BuyRankingPanel.jsx";
@@ -316,7 +317,7 @@ export default function App() {
   if (!isAdminState && profile && profile.isActive === false)
     return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); }} />;
 
-  if (showAdmin && isAdminState) return <AdminDashboard adminUser={user} onClose={() => setShowAdmin(false)} />;
+  if (showAdmin && isAdminState) return <AdminDashboard adminUser={user} stocks={stocks} onClose={() => setShowAdmin(false)} />;
 
   if (showSettings) return (
     <SettingsPage
@@ -330,6 +331,7 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: "Inter,-apple-system,sans-serif", color: C.text }}>
+      <NotificationBanner />
       {toast && <div style={{ position: "fixed", top: 20, right: 20, zIndex: 10001, background: toast.type === "err" ? C.red : toast.type === "warn" ? C.orange : C.accent, color: "#fff", borderRadius: 10, padding: "12px 20px", fontWeight: 700, fontSize: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 340 }}>{toast.msg}</div>}
 
       {chartStock && (
