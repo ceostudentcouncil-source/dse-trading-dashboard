@@ -4,6 +4,7 @@ import { card, btn, inp } from "../utils/styleHelpers.js";
 import { fsGet, fsSet, fsGetAll } from "../firebase.js";
 import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
 import { sendBroadcast, deleteBroadcast, listenToBroadcasts, getResponseSummary } from "../services/broadcastService.js";
+import { setChatEnabled, getChatSettings, setChatMode, listenToChatSettings } from "../services/chatService.js";
 
 function AdminDashboard({adminUser,stocks,onClose}){
   const [users,setUsers]=useState([]);
@@ -25,6 +26,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
   const [bcTargetPrice,setBcTargetPrice]=useState("");
   const [bcPercentage,setBcPercentage]=useState("");
   const [bcSending,setBcSending]=useState(false);
+  const [chatMode,setChatModeState]=useState("open");
+  const [chatModeSaving,setChatModeSaving]=useState(false);
 
   useEffect(()=>{
     loadUsers();
@@ -32,7 +35,9 @@ function AdminDashboard({adminUser,stocks,onClose}){
     // Real-time: admin sees broadcast list update live too (e.g. if
     // a second admin is also managing broadcasts at the same time).
     const unsub=listenToBroadcasts(setBroadcasts);
-    return unsub;
+    // Real-time: reflect chat mode instantly if changed from another tab/admin.
+    const unsubChat=listenToChatSettings(s=>setChatModeState(s?.mode||"open"));
+    return ()=>{unsub();unsubChat();};
   },[]);
 
   // Follow-up fix: load seen/followed counts for each broadcast so
@@ -89,6 +94,18 @@ function AdminDashboard({adminUser,stocks,onClose}){
     await updateUserProfile(u.id,{isActive:newStatus});
   };
 
+  // #5 fix: admin can block a specific user's chat participation.
+  // Default is enabled (chatEnabled !== false), so this only needs
+  // to explicitly set false to block, or true/removed to re-allow.
+  const toggleChatAccess=async(u)=>{
+    const newStatus=u.chatEnabled===false?true:false;
+    setSaving(true);
+    await setChatEnabled(u.id,newStatus);
+    setUsers(prev=>prev.map(x=>x.id===u.id?{...x,chatEnabled:newStatus}:x));
+    if(selected&&selected.id===u.id) setSelected(s=>({...s,chatEnabled:newStatus}));
+    setSaving(false);
+  };
+
   const updatePayment=async(u,amount)=>{
     const today=new Date().toISOString().split("T")[0];
     // Next renewal = 1 month from today
@@ -126,7 +143,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
     if(result.ok){
       await loadAdmins();
     }
-    setSaving(false);
+setSaving(false);
     return result;
   };
 
@@ -152,6 +169,13 @@ function AdminDashboard({adminUser,stocks,onClose}){
     await deleteBroadcast(id);
   };
 
+  // 5A: admin flips the global chat mode — open/readonly/closed.
+  const handleSetChatMode=async(mode)=>{
+    setChatModeSaving(true);
+    await setChatMode(mode,adminUser.email);
+    setChatModeSaving(false);
+  };
+
   const filtered=users.filter(u=>{
     if(!search)return true;
     const s=search.toLowerCase();
@@ -167,8 +191,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
     <div style={{background:C.bg,minHeight:"100vh",padding:"0 0 40px"}}>
       {/* Admin Header */}
       <div style={{background:"linear-gradient(135deg,#0D0A1A,#1A0A2E)",padding:"16px 20px",borderBottom:"1px solid #9C27B033"}}>
-        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between"}}> 
-<div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{width:44,height:44,background:"linear-gradient(135deg,#9C27B0,#673AB7)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👑</div>
             <div>
               <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>Admin Dashboard</div>
@@ -178,7 +202,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
-          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
+          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["chatctrl","💬 Chat Control"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={TS(t)}>{l}</button>
           ))}
         </div>
@@ -216,6 +240,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
                           {u.lastPaymentDate&&<div style={{fontSize:10,color:C.muted}}>💳 {u.lastPaymentDate}</div>}
                           {isExpired&&<div style={{fontSize:10,color:C.red,fontWeight:700}}>⚠️ Expired</div>}
                           {u.nextRenewalDate&&<div style={{fontSize:10,color:C.yellow}}>🔄 {u.nextRenewalDate}</div>}
+                          {u.chatEnabled===false&&<div style={{fontSize:10,color:C.red,fontWeight:700}}>🚫 Chat বন্ধ</div>}
                         </div>
                       </div>
                     </div>
@@ -259,6 +284,14 @@ function AdminDashboard({adminUser,stocks,onClose}){
                     <button onClick={()=>toggleBlock(selected)} disabled={saving}
                       style={{...btn(selected.isActive?C.red:C.accent,true),flex:1,padding:10}}>
                       {selected.isActive?"🔴 Block করুন":"✅ Activate করুন"}
+                    </button>
+                  </div>
+
+                  {/* #5 fix: chat participation toggle */}    
+<div style={{display:"flex",gap:8,marginTop:8}}>
+                    <button onClick={()=>toggleChatAccess(selected)} disabled={saving}
+                      style={{...btn(selected.chatEnabled===false?C.accent:C.red,true),flex:1,padding:10}}>
+                      {selected.chatEnabled===false?"💬 Chat চালু করুন":"🚫 Chat বন্ধ করুন"}
                     </button>
                   </div>
                 </div>
@@ -337,8 +370,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
                           {d.payments.map((p,i)=>(
                             <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"4px 8px",background:"#0A1628",borderRadius:6}}>
                               <span style={{color:C.text}}>{p.userName}</span>
-                              <span style={{color:C.muted}}>{p.date}</span>  
-<span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>
+                              <span style={{color:C.muted}}>{p.date}</span>
+                              <span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>
                             </div>
                           ))}
                         </div>
@@ -384,6 +417,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
                   </div>
                 )}
               </div>
+              
 
               <div style={{marginBottom:12}}>
                 <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Message</div>
@@ -394,9 +428,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
               <button onClick={handleSendBroadcast} disabled={bcSending||!bcStock||!bcMessage.trim()} style={{...btn(C.accent,true),width:"100%",padding:12}}>
                 {bcSending?"⏳ পাঠানো হচ্ছে...":"📢 সবাইকে পাঠান"}
               </button>
-            </div>
-
-            <div style={{...card(),padding:16}}>
+            </div>      
+<div style={{...card(),padding:16}}>
               <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:13}}>📋 Broadcast History ({broadcasts.length})</div>
               {broadcasts.length===0?(
                 <div style={{color:C.muted,fontSize:12}}>এখনো কোনো broadcast পাঠানো হয়নি।</div>
@@ -423,6 +456,45 @@ function AdminDashboard({adminUser,stocks,onClose}){
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {tab==="chatctrl"&&(
+          <div>
+            <div style={{...card(),padding:20,marginBottom:14}}>
+              <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>💬 Global Chat Mode</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:16}}>এখান থেকে পুরো group chat এর জন্য একটা master switch নিয়ন্ত্রণ করুন — সবার জন্য প্রযোজ্য হবে।</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {[
+                  ["open","🟢 সবার জন্য খোলা","সবাই (active user) মেসেজ পড়তে ও লিখতে পারবে।",C.accent],
+                  ["readonly","🟡 শুধু Admin লিখতে পারবে","সবাই পড়তে পারবে, কিন্তু শুধু Admin মেসেজ পাঠাতে পারবে।",C.yellow],
+                  ["closed","🔴 সম্পূর্ণ বন্ধ","কেউ চ্যাট দেখতে বা লিখতে পারবে না।",C.red],
+                ].map(([value,label,desc,color])=>(
+                  <button key={value} onClick={()=>handleSetChatMode(value)} disabled={chatModeSaving}
+                    style={{textAlign:"left",padding:14,borderRadius:10,border:"2px solid "+(chatMode===value?color:C.border),background:chatMode===value?color+"18":"#070D1A",cursor:"pointer",fontFamily:"inherit"}}>
+                    <div style={{fontWeight:700,color:chatMode===value?color:"#fff",fontSize:13,marginBottom:3}}>{label} {chatMode===value&&"✓"}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{...card(),padding:20}}>
+              <div style={{fontWeight:700,color:C.accent,marginBottom:6,fontSize:13}}>👤 প্রতি-ইউজার Chat Access</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Global mode "🟢 সবার জন্য খোলা" থাকলেও, এখান থেকে নির্দিষ্ট কাউকে আলাদাভাবে ব্লক করা যাবে (Users ট্যাব থেকেও করা যায়)।</div>
+              {users.filter(u=>u.chatEnabled===false).length===0?(
+                <div style={{color:C.muted,fontSize:12}}>কোনো user কে আলাদাভাবে chat থেকে block করা হয়নি।</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {users.filter(u=>u.chatEnabled===false).map(u=>(
+                    <div key={u.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#070D1A",borderRadius:8,padding:"8px 12px"}}>
+                      <span style={{fontSize:12,color:C.text}}>{u.displayName||u.email}</span>
+                      <button onClick={()=>toggleChatAccess(u)} disabled={saving} style={btn(C.accent,true,true)}>💬 চালু করুন</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -495,4 +567,4 @@ function AdminDashboard({adminUser,stocks,onClose}){
   );
 }
 
-export default AdminDashboard;                              
+export default AdminDashboard;            
