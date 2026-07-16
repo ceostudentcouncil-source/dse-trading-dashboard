@@ -3,7 +3,7 @@ import { C } from "../constants.js";
 import { card, btn, inp } from "../utils/styleHelpers.js";
 import { fsGet, fsSet, fsGetAll } from "../firebase.js";
 import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
-import { sendBroadcast, deleteBroadcast, listenToBroadcasts } from "../services/broadcastService.js";
+import { sendBroadcast, deleteBroadcast, listenToBroadcasts, getResponseSummary } from "../services/broadcastService.js";
 
 function AdminDashboard({adminUser,stocks,onClose}){
   const [users,setUsers]=useState([]);
@@ -18,6 +18,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
   const [newAdminEmail,setNewAdminEmail]=useState("");
   const [newAdminRole,setNewAdminRole]=useState("limited");
   const [broadcasts,setBroadcasts]=useState([]);
+  const [responseSummaries,setResponseSummaries]=useState({}); // { [broadcastId]: {total,seen,followed} }
   const [bcStock,setBcStock]=useState("");
   const [bcAction,setBcAction]=useState("buy");
   const [bcMessage,setBcMessage]=useState("");
@@ -33,6 +34,16 @@ function AdminDashboard({adminUser,stocks,onClose}){
     const unsub=listenToBroadcasts(setBroadcasts);
     return unsub;
   },[]);
+
+  // Follow-up fix: load seen/followed counts for each broadcast so
+  // the admin can confirm how many users acknowledged each suggestion.
+  useEffect(()=>{
+    broadcasts.forEach(b=>{
+      getResponseSummary(b.id).then(summary=>{
+        setResponseSummaries(prev=>({...prev,[b.id]:summary}));
+      });
+    });
+  },[broadcasts]);
 
   const loadUsers=async()=>{
     setLoading(true);
@@ -156,14 +167,14 @@ function AdminDashboard({adminUser,stocks,onClose}){
     <div style={{background:C.bg,minHeight:"100vh",padding:"0 0 40px"}}>
       {/* Admin Header */}
       <div style={{background:"linear-gradient(135deg,#0D0A1A,#1A0A2E)",padding:"16px 20px",borderBottom:"1px solid #9C27B033"}}>
-        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{maxWidth:1140,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between"}}> 
+<div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{width:44,height:44,background:"linear-gradient(135deg,#9C27B0,#673AB7)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>👑</div>
             <div>
               <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>Admin Dashboard</div>
               <div style={{fontSize:11,color:"#CE93D8"}}>{adminUser.email} · DSE Trading Platform</div>
-            </div> 
-</div>
+            </div>
+          </div>
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
@@ -326,9 +337,9 @@ function AdminDashboard({adminUser,stocks,onClose}){
                           {d.payments.map((p,i)=>(
                             <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"4px 8px",background:"#0A1628",borderRadius:6}}>
                               <span style={{color:C.text}}>{p.userName}</span>
-                              <span style={{color:C.muted}}>{p.date}</span>
-                              <span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>             
-</div>
+                              <span style={{color:C.muted}}>{p.date}</span>  
+<span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -392,6 +403,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
               ):broadcasts.map(b=>{
                 const actionLabel=b.action==="buy"?"📥 BUY":b.action==="sell"?"📤 SELL":"🔶 PARTIAL SELL";
                 const actionColor=b.action==="buy"?C.accent:b.action==="sell"?C.red:C.orange;
+                const summary=responseSummaries[b.id];
                 return(
                   <div key={b.id} style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:8,border:"1px solid "+C.border}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -401,8 +413,13 @@ function AdminDashboard({adminUser,stocks,onClose}){
                       {b.percentage!=null&&<span style={{fontSize:11,color:C.muted}}>({b.percentage}%)</span>}
                       <button onClick={()=>handleDeleteBroadcast(b.id)} style={{marginLeft:"auto",...btn(C.red,false,true)}}>🗑️</button>
                     </div>
-                    <div style={{fontSize:12,color:C.text,lineHeight:1.6,marginBottom:4}}>{b.message}</div>
-                    <div style={{fontSize:10,color:C.muted}}>{b.createdBy} · {b.createdAt?new Date(b.createdAt).toLocaleString("bn-BD"):""}</div>
+                    <div style={{fontSize:12,color:C.text,lineHeight:1.6,marginBottom:6}}>{b.message}</div>
+                    {/* Follow-up fix: confirm how many users saw/followed this suggestion */}
+                    <div style={{display:"flex",gap:10,marginBottom:6,fontSize:11}}>
+                      <span style={{color:C.blue,fontWeight:700}}>👁️ {summary?summary.seen:0} জন দেখেছে</span>
+                      <span style={{color:C.accent,fontWeight:700}}>📌 {summary?summary.followed:0} জন Follow করেছে</span>
+                    </div>
+                    <div style={{fontSize:10,color:C.muted}}>{b.createdBy} · {b.createdAt?new Date(b.createdAt).toLocaleDateString("bn-BD",{year:"numeric",month:"long",day:"numeric"})+" · "+new Date(b.createdAt).toLocaleTimeString("bn-BD",{hour:"2-digit",minute:"2-digit"}):""}</div>
                   </div>
                 );
               })}
