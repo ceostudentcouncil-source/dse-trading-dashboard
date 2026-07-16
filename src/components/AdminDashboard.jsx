@@ -3,8 +3,9 @@ import { C } from "../constants.js";
 import { card, btn, inp } from "../utils/styleHelpers.js";
 import { fsGet, fsSet, fsGetAll } from "../firebase.js";
 import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
+import { sendBroadcast, deleteBroadcast, listenToBroadcasts } from "../services/broadcastService.js";
 
-function AdminDashboard({adminUser,onClose}){
+function AdminDashboard({adminUser,stocks,onClose}){
   const [users,setUsers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState("");
@@ -16,10 +17,21 @@ function AdminDashboard({adminUser,onClose}){
   const [adminsLoading,setAdminsLoading]=useState(true);
   const [newAdminEmail,setNewAdminEmail]=useState("");
   const [newAdminRole,setNewAdminRole]=useState("limited");
+  const [broadcasts,setBroadcasts]=useState([]);
+  const [bcStock,setBcStock]=useState("");
+  const [bcAction,setBcAction]=useState("buy");
+  const [bcMessage,setBcMessage]=useState("");
+  const [bcTargetPrice,setBcTargetPrice]=useState("");
+  const [bcPercentage,setBcPercentage]=useState("");
+  const [bcSending,setBcSending]=useState(false);
 
   useEffect(()=>{
     loadUsers();
     loadAdmins();
+    // Real-time: admin sees broadcast list update live too (e.g. if
+    // a second admin is also managing broadcasts at the same time).
+    const unsub=listenToBroadcasts(setBroadcasts);
+    return unsub;
   },[]);
 
   const loadUsers=async()=>{
@@ -107,6 +119,28 @@ function AdminDashboard({adminUser,onClose}){
     return result;
   };
 
+  // #4 fix: admin posts a Buy/Sell/Partial-Sell suggestion; all
+  // signed-in users see it instantly via NotificationBanner's
+  // real-time listener — no manual refresh needed on either side.
+  const handleSendBroadcast=async()=>{
+    if(!bcStock||!bcMessage.trim())return;
+    setBcSending(true);
+    await sendBroadcast({
+      stock:bcStock,
+      action:bcAction,
+      message:bcMessage.trim(),
+      targetPrice:bcTargetPrice?+bcTargetPrice:null,
+      percentage:bcAction==="partial_sell"&&bcPercentage?+bcPercentage:null,
+      createdBy:adminUser.email,
+    });
+    setBcStock("");setBcAction("buy");setBcMessage("");setBcTargetPrice("");setBcPercentage("");
+    setBcSending(false);
+  };
+
+  const handleDeleteBroadcast=async(id)=>{
+    await deleteBroadcast(id);
+  };
+
   const filtered=users.filter(u=>{
     if(!search)return true;
     const s=search.toLowerCase();
@@ -128,12 +162,12 @@ function AdminDashboard({adminUser,onClose}){
             <div>
               <div style={{fontWeight:800,fontSize:18,color:"#fff"}}>Admin Dashboard</div>
               <div style={{fontSize:11,color:"#CE93D8"}}>{adminUser.email} · DSE Trading Platform</div>
-            </div>
-          </div>
+            </div> 
+</div>
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
-          {[["users","👥 Users"],["stats","📊 Stats"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
+          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={TS(t)}>{l}</button>
           ))}
         </div>
@@ -187,8 +221,8 @@ function AdminDashboard({adminUser,onClose}){
                     <div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
                     <button onClick={()=>{setSelected(null);setSelectedData(null);}} style={btn(C.muted,false,true)}>✕</button>
                   </div>
-                  {/* Profile Info */} 
-<div style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:12}}>
+                  {/* Profile Info */}
+                  <div style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:12}}>
                     {[["Email",selected.email],["WhatsApp",selected.whatsapp||"—"],["বিকাশ",selected.bkash||"—"],["Join Date",selected.joinDate||"—"],["Monthly Fee","৳"+(selected.monthlyFee||1000)],["Last Payment",selected.lastPaymentDate||"—"],["Next Renewal",selected.nextRenewalDate||"—"]].map(([l,v])=>(
                       <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:6}}>
                         <span style={{color:C.muted}}>{l}</span><span style={{color:C.text,fontWeight:600}}>{v}</span>
@@ -293,8 +327,8 @@ function AdminDashboard({adminUser,onClose}){
                             <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"4px 8px",background:"#0A1628",borderRadius:6}}>
                               <span style={{color:C.text}}>{p.userName}</span>
                               <span style={{color:C.muted}}>{p.date}</span>
-                              <span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>
-                            </div>
+                              <span style={{color:C.accent,fontWeight:700}}>৳{p.amount}</span>             
+</div>
                           ))}
                         </div>
                       </div>
@@ -303,6 +337,76 @@ function AdminDashboard({adminUser,onClose}){
                 </div>
               );
             })()}
+          </div>
+        )}
+
+        {tab==="broadcast"&&(
+          <div>
+            <div style={{...card(),padding:20,marginBottom:14}}>
+              <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>📢 নতুন Broadcast পাঠান</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:16}}>সব user সাথে সাথে এই notification দেখতে পাবে — কোনো refresh লাগবে না।</div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Stock</div>
+                  <select value={bcStock} onChange={e=>setBcStock(e.target.value)} style={{...inp({width:"100%"})}}>
+                    <option value="">নির্বাচন করুন</option>
+                    {(stocks||[]).map(s=><option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Action</div>
+                  <select value={bcAction} onChange={e=>setBcAction(e.target.value)} style={{...inp({width:"100%"})}}>
+                    <option value="buy">📥 Buy</option>
+                    <option value="sell">📤 Sell</option>
+                    <option value="partial_sell">🔶 Partial Sell</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Target Price ৳ (ঐচ্ছিক)</div>
+                  <input type="number" value={bcTargetPrice} onChange={e=>setBcTargetPrice(e.target.value)} style={{...inp({width:"100%",boxSizing:"border-box"})}}/>
+                </div>
+                {bcAction==="partial_sell"&&(
+                  <div>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Percentage % (ঐচ্ছিক)</div>
+                    <input type="number" min="1" max="100" value={bcPercentage} onChange={e=>setBcPercentage(e.target.value)} style={{...inp({width:"100%",boxSizing:"border-box"})}}/>
+                  </div>
+                )}
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Message</div>
+                <textarea value={bcMessage} onChange={e=>setBcMessage(e.target.value)} placeholder="যেমন: RSI oversold, MACD bullish crossover — এখন কেনার ভালো সময়।"
+                  style={{width:"100%",height:80,background:"#0A1628",border:"1px solid "+C.border,borderRadius:6,color:C.text,padding:10,fontSize:13,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
+              </div>
+
+              <button onClick={handleSendBroadcast} disabled={bcSending||!bcStock||!bcMessage.trim()} style={{...btn(C.accent,true),width:"100%",padding:12}}>
+                {bcSending?"⏳ পাঠানো হচ্ছে...":"📢 সবাইকে পাঠান"}
+              </button>
+            </div>
+
+            <div style={{...card(),padding:16}}>
+              <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:13}}>📋 Broadcast History ({broadcasts.length})</div>
+              {broadcasts.length===0?(
+                <div style={{color:C.muted,fontSize:12}}>এখনো কোনো broadcast পাঠানো হয়নি।</div>
+              ):broadcasts.map(b=>{
+                const actionLabel=b.action==="buy"?"📥 BUY":b.action==="sell"?"📤 SELL":"🔶 PARTIAL SELL";
+                const actionColor=b.action==="buy"?C.accent:b.action==="sell"?C.red:C.orange;
+                return(
+                  <div key={b.id} style={{background:"#070D1A",borderRadius:10,padding:12,marginBottom:8,border:"1px solid "+C.border}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                      <span style={{background:actionColor+"22",color:actionColor,borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:800}}>{actionLabel}</span>
+                      <span style={{fontWeight:800,color:"#fff",fontSize:13}}>{b.stock}</span>
+                      {b.targetPrice!=null&&<span style={{fontSize:11,color:C.muted}}>@ ৳{b.targetPrice}</span>}
+                      {b.percentage!=null&&<span style={{fontSize:11,color:C.muted}}>({b.percentage}%)</span>}
+                      <button onClick={()=>handleDeleteBroadcast(b.id)} style={{marginLeft:"auto",...btn(C.red,false,true)}}>🗑️</button>
+                    </div>
+                    <div style={{fontSize:12,color:C.text,lineHeight:1.6,marginBottom:4}}>{b.message}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{b.createdBy} · {b.createdAt?new Date(b.createdAt).toLocaleString("bn-BD"):""}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -374,4 +478,4 @@ function AdminDashboard({adminUser,onClose}){
   );
 }
 
-export default AdminDashboard;          
+export default AdminDashboard;                              
