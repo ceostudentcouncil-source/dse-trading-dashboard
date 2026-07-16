@@ -1,8 +1,9 @@
 // ── Admin Configuration ─────────────────────────────────────────
-export const ADMIN_EMAIL = "ceostudentcouncil@gmail.com";
-export const SUB_ADMIN_EMAILS = []; // add extra admin emails here
-
-export const isAdmin = (email) => email === ADMIN_EMAIL || SUB_ADMIN_EMAILS.includes(email);
+// NOTE (Phase 2): Admin status is now looked up dynamically from
+// Firestore's `admins` collection — see services/adminService.js.
+// The static ADMIN_EMAIL / SUB_ADMIN_EMAILS / isAdmin() below have
+// been removed; App.jsx now tracks admin status as React state
+// (isAdminState) populated via checkIsAdmin() on login.
 
 // ── Local Storage ─────────────────────────────────────────────
 export const SK = "dse-v7";
