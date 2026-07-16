@@ -83,3 +83,21 @@ export const fsListen = (collPath, cb, orderByField) => {
     return () => {};
   }
 };
+
+// Real-time listener for a SINGLE document — calls `cb` with the
+// current data (or null if it doesn't exist) immediately, then again
+// on every change. Used for settings/chat, where multiple admins or
+// tabs need to see mode changes live without a full collection scan.
+export const fsListenDoc = (path, cb) => {
+  try {
+    return onSnapshot(doc(db, ...path.split("/")), (snap) => {
+      cb(snap.exists() ? snap.data() : null);
+    }, (e) => {
+      console.log("fsListenDoc error:", e);
+      cb(null);
+    });
+  } catch (e) {
+    console.log("fsListenDoc setup error:", e);
+    return () => {};
+  }
+};
