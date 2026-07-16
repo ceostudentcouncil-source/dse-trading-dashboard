@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { C, ADMIN_EMAIL, SUB_ADMIN_EMAILS } from "../constants.js";
+import { C } from "../constants.js";
 import { card, btn, inp } from "../utils/styleHelpers.js";
 import { fsGet, fsSet, fsGetAll } from "../firebase.js";
+import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
 
 function AdminDashboard({adminUser,onClose}){
   const [users,setUsers]=useState([]);
@@ -11,18 +12,35 @@ function AdminDashboard({adminUser,onClose}){
   const [selectedData,setSelectedData]=useState(null);
   const [tab,setTab]=useState("users");
   const [saving,setSaving]=useState(false);
+  const [admins,setAdmins]=useState([]);
+  const [adminsLoading,setAdminsLoading]=useState(true);
+  const [newAdminEmail,setNewAdminEmail]=useState("");
+  const [newAdminRole,setNewAdminRole]=useState("limited");
 
   useEffect(()=>{
     loadUsers();
+    loadAdmins();
   },[]);
 
   const loadUsers=async()=>{
     setLoading(true);
     try{
       const allUsers=await fsGetAll("users");
-      setUsers(allUsers);
+      // #1 fix: never show the logged-in admin's own profile/portfolio
+      // in the regular user list — it isn't a "user account" to manage.
+      const filtered=allUsers.filter(u=>u.id!==adminUser.uid);
+      setUsers(filtered);
     }catch(e){console.log(e);}
     setLoading(false);
+  };
+
+  const loadAdmins=async()=>{
+    setAdminsLoading(true);
+    try{
+      const list=await listAdmins();
+      setAdmins(list);
+    }catch(e){console.log(e);}
+    setAdminsLoading(false);
   };
 
   const loadUserData=async(uid)=>{
@@ -61,6 +79,29 @@ function AdminDashboard({adminUser,onClose}){
     });
   };
 
+  // #6 fix: dynamic admin add/remove — no more code deploys needed.
+  const handleAddAdmin=async()=>{
+    if(!newAdminEmail.trim())return;
+    setSaving(true);
+    const ok=await addAdmin(newAdminEmail.trim().toLowerCase(),newAdminRole,adminUser.email);
+    if(ok){
+      setNewAdminEmail("");
+      setNewAdminRole("limited");
+      await loadAdmins();
+    }
+    setSaving(false);
+  };
+
+  const handleRevokeAdmin=async(email)=>{
+    setSaving(true);
+    const result=await revokeAdmin(email);
+    if(result.ok){
+      await loadAdmins();
+    }
+    setSaving(false);
+    return result;
+  };
+
   const filtered=users.filter(u=>{
     if(!search)return true;
     const s=search.toLowerCase();
@@ -87,7 +128,7 @@ function AdminDashboard({adminUser,onClose}){
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
-          {[["users","👥 Users"],["stats","📊 Stats"],["settings","⚙️ Settings"]].map(([t,l])=>(
+          {[["users","👥 Users"],["stats","📊 Stats"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={TS(t)}>{l}</button>
           ))}
         </div>
@@ -116,9 +157,9 @@ function AdminDashboard({adminUser,onClose}){
                           <div style={{fontWeight:700,color:"#fff",fontSize:14}}>{u.displayName||"No name"}</div>
                           <div style={{fontSize:11,color:C.muted}}>{u.email}</div>
                           <div style={{fontSize:10,display:"flex",gap:8,marginTop:2}}>
-                            {u.bkash&&<span style={{color:C.yellow}}>💳 {u.bkash}</span>}
-                            {u.whatsapp&&<span style={{color:C.accent}}>📱 {u.whatsapp}</span>} 
-</div>
+                            {u.bkash&&<span style={{color:C.yellow}}>💳 {u.bkash}</span>} 
+ {u.whatsapp&&<span style={{color:C.accent}}>📱 {u.whatsapp}</span>}
+                          </div>
                         </div>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontSize:12,fontWeight:700,color:u.isActive?C.accent:C.red}}>{u.isActive?"✅ Active":"🔴 Blocked"}</div>
@@ -213,18 +254,62 @@ function AdminDashboard({adminUser,onClose}){
           </div>
         )}
 
+        {tab==="permissions"&&(
+          <div style={{...card(),padding:20}}>
+            <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>🔑 Admin Permissions</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:16}}>এখান থেকে dynamically কাউকে Admin বা Limited access দেওয়া যাবে — কোনো code deploy লাগবে না।</div>
+
+            <div style={{background:"#070D1A",borderRadius:10,padding:16,marginBottom:14}}>
+              <div style={{fontWeight:700,color:C.yellow,marginBottom:10,fontSize:13}}>+ নতুন Admin যোগ করুন</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Gmail Address</div>
+                  <input value={newAdminEmail} onChange={e=>setNewAdminEmail(e.target.value)} placeholder="example@gmail.com" style={{...inp({width:"100%",boxSizing:"border-box"})}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Access Level</div>
+                  <select value={newAdminRole} onChange={e=>setNewAdminRole(e.target.value)} style={inp()}>
+                    <option value="limited">Limited</option>
+                    <option value="full">Full</option>
+                  </select>
+                </div>
+                <button onClick={handleAddAdmin} disabled={saving||!newAdminEmail.trim()} style={{...btn(C.accent,true),padding:"10px 16px"}}>✅ যোগ করুন</button>
+              </div>
+              <div style={{fontSize:11,color:C.muted,marginTop:8}}>Full = সব permission (user block, payment, admin manage)। Limited = শুধু user দেখা ও payment update, admin manage করতে পারবে না।</div>
+            </div>
+
+            <div style={{fontWeight:700,color:C.accent,marginBottom:8,fontSize:13}}>বর্তমান Admin তালিকা ({admins.length})</div>
+            {adminsLoading?<div style={{color:C.muted,fontSize:12}}>Loading...</div>:
+              admins.map(a=>{
+                const isSuper=a.id===SUPER_ADMIN_EMAIL;
+                return(
+                  <div key={a.id} style={{background:"#070D1A",borderRadius:10,padding:14,marginBottom:8,border:"1px solid "+(isSuper?C.gold+"44":C.border),display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,color:"#fff",fontSize:13}}>{a.id} {isSuper&&<span style={{color:C.gold}}>👑 Super Admin</span>}</div>
+                      <div style={{fontSize:11,color:C.muted}}>Role: {a.role||"—"} {a.addedBy?"· Added by "+a.addedBy:""} {a.addedAt?"· "+a.addedAt:""}</div>
+                    </div>
+                    {!isSuper&&(
+                      <button onClick={()=>handleRevokeAdmin(a.id)} disabled={saving} style={btn(C.red,false,true)}>🗑️ Remove</button>
+                    )}
+                  </div>
+                );
+              })
+            }
+            {!adminsLoading&&admins.length===0&&<div style={{color:C.muted,fontSize:12}}>কোনো admin পাওয়া যায়নি — Firestore এ admins collection check করুন।</div>}
+          </div>
+        )}
+
         {tab==="settings"&&(
           <div style={{...card(),padding:20}}>
             <div style={{fontWeight:700,color:C.accent,marginBottom:16}}>⚙️ Platform Settings</div>
             <div style={{background:"#070D1A",borderRadius:10,padding:16,marginBottom:14}}>
               <div style={{fontWeight:700,color:C.yellow,marginBottom:10,fontSize:13}}>👑 Admin Access</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:6}}>Super Admin: <span style={{color:C.accent}}>{ADMIN_EMAIL}</span></div>
-              <div style={{fontSize:12,color:C.muted}}>Sub Admins: <span style={{color:C.text}}>{SUB_ADMIN_EMAILS.length>0?SUB_ADMIN_EMAILS.join(", "):"কেউ নেই"}</span></div>
+              <div style={{fontSize:12,color:C.muted}}>Admin manage করতে "🔑 Permissions" ট্যাব ব্যবহার করুন — এখন dynamic, Firestore থেকে চলে।</div>
             </div>
             <div style={{background:"#070D1A",borderRadius:10,padding:16}}>
               <div style={{fontWeight:700,color:C.yellow,marginBottom:10,fontSize:13}}>📋 Instructions</div>
               <div style={{fontSize:12,color:C.muted,lineHeight:1.8}}>
-                • নতুন sub-admin যোগ করতে: App.jsx এ SUB_ADMIN_EMAILS array তে email যোগ করুন<br/>
+                • নতুন admin যোগ করতে: "🔑 Permissions" ট্যাবে email দিয়ে Add করুন<br/>
                 • Default monthly fee পরিবর্তন করতে: DEFAULT_PROFILE.monthlyFee update করুন<br/>
                 • User block করলে তারা login করতে পারবে না<br/>
                 • Payment update করলে auto 1 মাস renewal হবে
@@ -237,4 +322,4 @@ function AdminDashboard({adminUser,onClose}){
   );
 }
 
-export default AdminDashboard;                            
+export default AdminDashboard;                           
