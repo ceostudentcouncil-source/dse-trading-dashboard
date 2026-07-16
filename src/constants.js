@@ -38,6 +38,9 @@ export const BROKERS = ["Ecosoft", "Lankabangla", "অন্য", "BRAC", "EBL",
 
 export const SECTORS = ["সব", "Bank", "Insurance", "Pharma", "Textile", "IT", "Fuel & Power", "NBFI", "Food", "Engineering", "অন্যান্য"];
 
+// Stock category (A/B/Z board classification) — #8 fix: this filter was missing entirely
+export const CATEGORIES = ["সব", "A", "B", "Z"];
+
 // ── Default User Profile ─────────────────────────────────────────
 export const DEFAULT_PROFILE = {
   displayName: "", phone: "", whatsapp: "", bkash: "",
