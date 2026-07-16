@@ -5,11 +5,12 @@ import { calcScore, generateStrategy } from "../utils/strategyEngine.js";
 
 function ProfitDashboard({trades,portfolio,stocks}){
   const [period,setPeriod]=useState("week");
+  const [chartDays,setChartDays]=useState(30); // #11 fix: was hardcoded to 30
   const filtered=useMemo(()=>{const cutoff=new Date();if(period==="day")cutoff.setDate(cutoff.getDate()-1);else if(period==="week")cutoff.setDate(cutoff.getDate()-7);else if(period==="fortnight")cutoff.setDate(cutoff.getDate()-14);else if(period==="month")cutoff.setMonth(cutoff.getMonth()-1);else cutoff.setFullYear(2000);return trades.filter(t=>new Date(t.date)>=cutoff);},[trades,period]);
   const totalRealized=trades.reduce((a,t)=>a+(t.profit||0),0);
   const totalWithdrawn=trades.reduce((a,t)=>a+(t.withdrawals||[]).reduce((x,w)=>x+(w.amount||0),0),0);
   const periodProfit=filtered.reduce((a,t)=>a+(t.profit||0),0);
-  const daily=useMemo(()=>{const map={};trades.forEach(t=>{const d=t.date?t.date.split("T")[0]:null;if(d)map[d]=(map[d]||0)+(t.profit||0);});const days=[];for(let i=29;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const k=d.toISOString().split("T")[0];days.push({date:k.slice(5),profit:map[k]||0});}return days;},[trades]);
+  const daily=useMemo(()=>{const map={};trades.forEach(t=>{const d=t.date?t.date.split("T")[0]:null;if(d)map[d]=(map[d]||0)+(t.profit||0);});const days=[];for(let i=chartDays-1;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const k=d.toISOString().split("T")[0];days.push({date:k.slice(5),profit:map[k]||0});}return days;},[trades,chartDays]);
   const maxP=Math.max(...daily.map(d=>Math.abs(d.profit)),1);
   const portMap={};portfolio.forEach(p=>{portMap[p.stock]=(portMap[p.stock]||0)+p.shares;});
   const top3=[...stocks].map(s=>({...s,score:calcScore(s,7),str:generateStrategy(s,7,portMap[s.name]||0)})).filter(s=>s.score>=60&&s.str&&s.str.priority<=2).sort((a,b)=>b.score-a.score).slice(0,3);
@@ -26,7 +27,14 @@ function ProfitDashboard({trades,portfolio,stocks}){
         ))}
       </div>
       <div style={{...card(),padding:14,marginBottom:14}}>
-        <div style={{fontWeight:700,color:C.accent,marginBottom:10}}>📈 Daily P&L (30 days)</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          <div style={{fontWeight:700,color:C.accent}}>📈 Daily P&L ({chartDays} days)</div>
+          <div style={{display:"flex",gap:6}}>
+            {[7,14,30,90].map(d=>(
+              <button key={d} onClick={()=>setChartDays(d)} style={btn(C.accent,chartDays===d,true)}>{d}d</button>
+            ))}
+          </div>
+        </div>
         <div style={{display:"flex",alignItems:"flex-end",gap:2,height:80}}>
           {daily.map((d,i)=>{const h=Math.max(2,Math.abs(d.profit)/maxP*70);return(
             <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
