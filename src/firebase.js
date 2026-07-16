@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot, query, orderBy } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCfWlWpPOW5igAZjRaLnWHHa7UcAFFnWcE",
@@ -58,5 +58,28 @@ export const fsGetAll = async (collPath) => {
   } catch (e) {
     console.log("fsGetAll error:", e);
     return [];
+  }
+};
+
+// Real-time listener for a whole collection — calls `cb` with the
+// current array of docs immediately, then again on every change.
+// Returns an unsubscribe function (call it in a useEffect cleanup).
+// Used for broadcasts and chat, where users need to see updates
+// live without refreshing.
+export const fsListen = (collPath, cb, orderByField) => {
+  try {
+    const ref = orderByField
+      ? query(collection(db, collPath), orderBy(orderByField, "desc"))
+      : collection(db, collPath);
+    return onSnapshot(ref, (snap) => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      cb(docs);
+    }, (e) => {
+      console.log("fsListen error:", e);
+      cb([]);
+    });
+  } catch (e) {
+    console.log("fsListen setup error:", e);
+    return () => {};
   }
 };
