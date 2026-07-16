@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 
 import { fbSignIn, fbSignOut, onAuth, fsGet, fsSet } from "./firebase.js";
-import { C, TODAY, isAdmin, DEFAULT_PROFILE, DEFAULT_BROKERS } from "./constants.js";
+import { C, TODAY, DEFAULT_PROFILE, DEFAULT_BROKERS } from "./constants.js";
+import { checkIsAdmin } from "./services/adminService.js";
 import { inp, card, btn } from "./utils/styleHelpers.js";
 import { load, save, daysSince, staleness } from "./utils/dateHelpers.js";
 import { calcScore, getRec, generateStrategy, calcTrailingSL } from "./utils/strategyEngine.js";
@@ -45,6 +46,8 @@ export default function App() {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [isAdminState, setIsAdminState] = useState(false); // #6 fix: dynamic, Firestore-backed
+  const [adminChecked, setAdminChecked] = useState(false); // avoids a flash of "not admin" while checking
 
   // -- App Data State --
   const [tab, setTab] = useState("screener");
@@ -106,8 +109,14 @@ export default function App() {
             if (appData.port && appData.port.length > 0) setPort(appData.port);
             if (appData.trades) setTrades(appData.trades);
           }
+          // #6 fix: admin status now comes from Firestore, not a static list
+          const adminStatus = await checkIsAdmin(u.email);
+          setIsAdminState(adminStatus);
         } catch (e) { console.log("Load error:", e); }
+      } else {
+        setIsAdminState(false);
       }
+      setAdminChecked(true);
       setAuthLoading(false);
     });
     return unsub;
@@ -304,10 +313,10 @@ export default function App() {
 
   if (!user) return <LoginScreen onLogin={async () => { await fbSignIn(); }} />;
 
-  if (!isAdmin(user.email) && profile && profile.isActive === false)
+  if (!isAdminState && profile && profile.isActive === false)
     return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); }} />;
 
-  if (showAdmin && isAdmin(user.email)) return <AdminDashboard adminUser={user} onClose={() => setShowAdmin(false)} />;
+  if (showAdmin && isAdminState) return <AdminDashboard adminUser={user} onClose={() => setShowAdmin(false)} />;
 
   if (showSettings) return (
     <SettingsPage
@@ -372,7 +381,7 @@ export default function App() {
             <button onClick={fetchLiveData} disabled={liveLoading} style={{ ...btn(liveStatus === "ok" ? C.accent : liveStatus === "error" ? C.red : C.blue, liveStatus === "ok", false), opacity: liveLoading ? 0.7 : 1 }}>
               {liveLoading ? "⏳ Loading..." : liveStatus === "ok" ? "🟢 Updated" : "📡 DSE Sync"}
             </button>
-            {isAdmin(user.email) && (
+            {isAdminState && (
               <button onClick={() => setShowAdmin(true)} style={{ ...btn("#9C27B0", true, true), display: "flex", alignItems: "center", gap: 4 }}>👑 Admin</button>
             )}
             <button onClick={() => setShowSettings(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 2 }}>
