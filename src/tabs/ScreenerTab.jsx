@@ -1,13 +1,18 @@
-import { C, SECTORS, TODAY } from "../constants.js";
+import { C, SECTORS, CATEGORIES, TODAY } from "../constants.js";
 import { card, btn, inp } from "../utils/styleHelpers.js";
 import { daysSince, staleness } from "../utils/dateHelpers.js";
 import { findSRLevels } from "../utils/taIndicators.js";
 import StockSearch from "../components/StockSearch.jsx";
 import Field from "../components/Field.jsx";
 
+// ══════════════════════════════════════════════════════════════
+// SCREENER TAB
+// Presentational — all state and handlers are owned by App.jsx
+// and passed down as props.
+// ══════════════════════════════════════════════════════════════
 export default function ScreenerTab({
   stocks, filtered, sigC, portMap, days, chartData,
-  nameFilter, setNameFilter, sector, setSector, sigF, setSigF, sortBy, setSortBy,
+  nameFilter, setNameFilter, sector, setSector, catFilter, setCatFilter, sigF, setSigF, sortBy, setSortBy,
   liveLoading,
   showAddS, setShowAddS, showPaste, setShowPaste,
   ns, setNs, nsSearch, setNsSearch, selectStockForNS, addStock,
@@ -33,7 +38,7 @@ export default function ScreenerTab({
             </button>
           ))}
         </div>
-        {(nameFilter||sector!=="সব"||sigF!=="সব")&&<div style={{marginTop:8,fontSize:11,color:C.yellow}}>দেখাচ্ছে: {filtered.length}টি <button onClick={()=>{setNameFilter("");setSector("সব");setSigF("সব");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>সব ফিল্টার মুছুন</button></div>}
+        {(nameFilter||sector!=="সব"||catFilter!=="সব"||sigF!=="সব")&&<div style={{marginTop:8,fontSize:11,color:C.yellow}}>দেখাচ্ছে: {filtered.length}টি <button onClick={()=>{setNameFilter("");setSector("সব");setCatFilter("সব");setSigF("সব");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:700,textDecoration:"underline"}}>সব ফিল্টার মুছুন</button></div>}
         <div style={{marginTop:10,padding:"8px 12px",background:C.blue+"11",borderRadius:8,border:"1px solid "+C.blue+"33",fontSize:11,color:C.muted,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <span>💡 বাজার বন্ধের পর</span><span style={{color:C.blue,fontWeight:700}}>📡 DSE Sync</span><span>চাপুন — closing price auto-update হবে।</span>
           {liveLoading&&<span style={{color:C.yellow,fontWeight:700}}>⏳ Data আনছি...</span>}
@@ -42,8 +47,9 @@ export default function ScreenerTab({
 
       <div style={{...card(),padding:12,marginBottom:12,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
         <select value={sector} onChange={e=>setSector(e.target.value)} style={inp()}>{SECTORS.map(s=><option key={s}>{s}</option>)}</select>
+        <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={inp()}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
         <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={inp()}>
-          <option value="score">Score</option><option value="vol">Volume</option><option value="eps">EPS</option><option value="rsi">RSI</option>
+          <option value="score">Score</option><option value="name">নাম (A-Z)</option><option value="vol">Volume</option><option value="eps">EPS</option><option value="rsi">RSI</option>
         </select>
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
           <button onClick={()=>{setShowPaste(true);setShowAddS(false);}} style={btn(C.purple)}>📋 Code Paste</button>
@@ -109,7 +115,10 @@ export default function ScreenerTab({
                   <div style={{fontSize:9,color:C.muted}}>T1 ৳{s.str.t1} · T2 ৳{s.str.t2}</div>
                 </div>
                 <div style={{display:"flex",gap:5}} onClick={e=>e.stopPropagation()}>
-                  <button onClick={()=>{setChartStock(s);if(!chartData[s.name]){fetchChartDataForSymbol(s.name);}}} style={btn("#4FC3F7",false,true)} title="Chart দেখুন">📊</button>
+                  <button onClick={()=>{
+                    setChartStock(s);
+                    if(!chartData[s.name]){fetchChartDataForSymbol(s.name);}
+                  }} style={btn("#4FC3F7",false,true)} title="Chart দেখুন">📊</button>
                   <button onClick={()=>setStockPaste(s)} style={btn(C.purple,false,true)} title="JSON paste update">📋</button>
                   <button onClick={()=>{setEditMode(editMode===s.id?null:s.id);setExpanded(s.id);}} style={btn(C.yellow,editMode===s.id,true)}>✏️</button>
                   <button onClick={()=>removeStock(s.id)} style={btn(C.red,false,true)}>✕</button>
