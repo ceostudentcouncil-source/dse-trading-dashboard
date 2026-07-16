@@ -48,10 +48,16 @@ function SettingsPage({profile,user,onSave,onClose,onSignOut}){
         )}
         {tab==="brokers"&&(
           <div style={{...card(),padding:20}}>
-            <div style={{fontWeight:700,color:C.accent,marginBottom:14}}>🏦 Broker Commission</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{fontWeight:700,color:C.accent}}>🏦 Broker Commission</div>
+              <button onClick={()=>setLp(p=>({...p,brokers:[...(p.brokers||DEFAULT_BROKERS),{id:"broker_"+Date.now(),name:"",commission:0.30,withdrawFee:0}]}))} style={btn(C.blue,true,true)}>+ Add Broker</button>
+            </div>
             {(lp.brokers||DEFAULT_BROKERS).map(b=>(
               <div key={b.id} style={{background:"#070D1A",borderRadius:10,padding:14,marginBottom:10,border:"1px solid "+C.border}}>
-                <div style={{fontWeight:700,color:"#4FC3F7",marginBottom:8}}>{b.name}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <input value={b.name} onChange={e=>updBroker(b.id,"name",e.target.value)} placeholder="Broker নাম" style={{...inp({fontWeight:700,color:"#4FC3F7",flex:1,marginRight:8})}}/>
+                  <button onClick={()=>setLp(p=>({...p,brokers:(p.brokers||[]).filter(x=>x.id!==b.id)}))} style={btn(C.red,false,true)}>🗑️</button>
+                </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div><div style={{fontSize:11,color:C.muted,marginBottom:3}}>Commission %</div>
                     <input type="number" value={b.commission} step="0.01" min="0" max="2" onChange={e=>updBroker(b.id,"commission",+e.target.value)} style={{...inp({width:90,textAlign:"center"})}}/></div>
@@ -61,6 +67,7 @@ function SettingsPage({profile,user,onSave,onClose,onSignOut}){
                 <div style={{marginTop:6,fontSize:11,color:C.yellow}}>৳১০,০০০ trade ≈ ৳{(10000*b.commission/100).toFixed(0)}</div>
               </div>
             ))}
+            {(lp.brokers||[]).length===0&&<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:20}}>কোনো broker নেই — "+ Add Broker" চাপুন।</div>}
           </div>
         )}
         {tab==="banks"&&(
