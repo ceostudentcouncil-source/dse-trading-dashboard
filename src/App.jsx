@@ -16,6 +16,7 @@ import BlockedScreen from "./components/BlockedScreen.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
 import NotificationBanner from "./components/NotificationBanner.jsx";
+import BroadcastHistory from "./components/BroadcastHistory.jsx";
 import PasteModal from "./components/PasteModal.jsx";
 import DeleteConfirm from "./components/DeleteConfirm.jsx";
 import BuyRankingPanel from "./components/BuyRankingPanel.jsx";
@@ -331,7 +332,7 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: "Inter,-apple-system,sans-serif", color: C.text }}>
-      <NotificationBanner />
+      <NotificationBanner user={user} />
       {toast && <div style={{ position: "fixed", top: 20, right: 20, zIndex: 10001, background: toast.type === "err" ? C.red : toast.type === "warn" ? C.orange : C.accent, color: "#fff", borderRadius: 10, padding: "12px 20px", fontWeight: 700, fontSize: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 340 }}>{toast.msg}</div>}
 
       {chartStock && (
@@ -440,7 +441,12 @@ export default function App() {
         )}
 
         {tab === "dashboard" && (
-          <ProfitDashboard trades={trades} portfolio={port} stocks={stocks} />
+          <div>
+            <BroadcastHistory user={user} />
+            <div style={{ marginTop: 16 }}>
+              <ProfitDashboard trades={trades} portfolio={port} stocks={stocks} />
+            </div>
+          </div>
         )}
 
         {tab === "risk" && (
