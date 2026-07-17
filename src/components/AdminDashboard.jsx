@@ -157,9 +157,6 @@ function AdminDashboard({adminUser,stocks,onClose}){
     setSaving(false);
   };
 
-  const updatePayment=async(u,amount)=>{ 
-};
-
   const updatePayment=async(u,amount)=>{
     const today=new Date().toISOString().split("T")[0];
     // Next renewal = 1 month from today
@@ -308,7 +305,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
               <div>
                 <div style={{...card(),padding:20,marginBottom:12,border:"1px solid "+C.purple+"44"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>     
-<div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
+                    <div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
                     <button onClick={()=>{setSelected(null);setSelectedData(null);}} style={btn(C.muted,false,true)}>✕</button>
                   </div>
                   {/* Profile Info */}
@@ -458,7 +455,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
                     <option value="buy">📥 Buy</option>
                     <option value="sell">📤 Sell</option>
                     <option value="partial_sell">🔶 Partial Sell</option>      
-</select>
+                  </select>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Target Price ৳ (ঐচ্ছিক)</div>
@@ -608,7 +605,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setActivityView("summary")} style={btn(C.accent,activityView==="summary",true)}>👤 Per-User সারাংশ</button>
                 <button onClick={()=>setActivityView("feed")} style={btn(C.accent,activityView==="feed",true)}>📜 সব Activity (সময়ানুক্রমিক)</button>      
-</div>
+              </div>
               <button onClick={loadActivity} disabled={activityLoading} style={btn(C.blue,false,true)}>🔄 Refresh</button>
             </div>
 
@@ -735,4 +732,4 @@ function AdminDashboard({adminUser,stocks,onClose}){
   );
 }
 
-export default AdminDashboard;                
+export default AdminDashboard;
