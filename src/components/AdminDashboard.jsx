@@ -6,6 +6,7 @@ import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../service
 import { sendBroadcast, deleteBroadcast, listenToBroadcasts, getResponseSummary } from "../services/broadcastService.js";
 import { setChatEnabled, getChatSettings, setChatMode, listenToChatSettings } from "../services/chatService.js";
 import { listAllConversations, getConversationId } from "../services/conversationService.js";
+import { getActivityFeed, getActivitySummaryByUser } from "../services/activityService.js";
 import ConversationThread from "./ConversationThread.jsx";
 
 function AdminDashboard({adminUser,stocks,onClose}){
@@ -33,6 +34,11 @@ function AdminDashboard({adminUser,stocks,onClose}){
   const [conversations,setConversations]=useState([]);
   const [conversationsLoading,setConversationsLoading]=useState(true);
   const [selectedConv,setSelectedConv]=useState(null);
+  const [activityFeed,setActivityFeed]=useState([]);
+  const [activitySummary,setActivitySummary]=useState([]);
+  const [activityLoading,setActivityLoading]=useState(true);
+  const [activityView,setActivityView]=useState("summary"); // "summary" | "feed"
+  const [activityUserFilter,setActivityUserFilter]=useState("");
 
   useEffect(()=>{
     loadUsers();
@@ -55,6 +61,15 @@ function AdminDashboard({adminUser,stocks,onClose}){
       });
     });
   },[broadcasts]);
+
+  // 5C: lazy-load the activity feed only when the admin actually opens
+  // that tab — it scans every message across group chat + all DMs,
+  // so no reason to pay that cost unless it's actually being viewed.
+  useEffect(()=>{
+    if(tab==="activity"&&activityFeed.length===0&&!activityLoading){
+      loadActivity();
+    }
+  },[tab]);
 
   const loadUsers=async()=>{
     setLoading(true);
@@ -86,6 +101,18 @@ function AdminDashboard({adminUser,stocks,onClose}){
       setConversations(list);
     }catch(e){console.log(e);}
     setConversationsLoading(false);
+  };
+
+  // 5C: pull the combined group-chat + DM activity feed and the
+  // per-user summary in one go — used by the Activity Log tab.
+  const loadActivity=async()=>{
+    setActivityLoading(true);
+    try{
+      const [feed,summary]=await Promise.all([getActivityFeed(),getActivitySummaryByUser()]);
+      setActivityFeed(feed);
+      setActivitySummary(summary);
+    }catch(e){console.log(e);}
+    setActivityLoading(false);
   };
 
   const loadUserData=async(uid)=>{
@@ -120,8 +147,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
     await setChatEnabled(u.id,newStatus);
     setUsers(prev=>prev.map(x=>x.id===u.id?{...x,chatEnabled:newStatus}:x));
     if(selected&&selected.id===u.id) setSelected(s=>({...s,chatEnabled:newStatus}));
-    setSaving(false);
-  };
+    setSaving(false); 
+};
 
   const updatePayment=async(u,amount)=>{
     const today=new Date().toISOString().split("T")[0];
@@ -158,7 +185,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
     setSaving(true);
     const result=await revokeAdmin(email);
     if(result.ok){
-   await loadAdmins();
+      await loadAdmins();
     }
     setSaving(false);
     return result;
@@ -219,7 +246,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
-          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["chatctrl","💬 Chat Control"],["conversations","✉️ Conversations"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
+          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["chatctrl","💬 Chat Control"],["conversations","✉️ Conversations"],["activity","🕐 Activity Log"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={TS(t)}>{l}</button>
           ))}
         </div>
@@ -270,8 +297,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
             {selected&&(
               <div>
                 <div style={{...card(),padding:20,marginBottom:12,border:"1px solid "+C.purple+"44"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-                    <div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>    
+<div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
                     <button onClick={()=>{setSelected(null);setSelectedData(null);}} style={btn(C.muted,false,true)}>✕</button>
                   </div>
                   {/* Profile Info */}
@@ -317,8 +344,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
                 {selectedData&&(
                   <div style={{...card(),padding:16}}>
                     <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:13}}>📊 User Portfolio Preview</div>
-                    {selectedData.port&&selectedData.port.length>0?(   
-<div>
+                    {selectedData.port&&selectedData.port.length>0?(
+                      <div>
                         <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Positions: {selectedData.port.length}</div>
                         {selectedData.port.slice(0,5).map((p,i)=>(
                           <div key={i} style={{background:"#070D1A",borderRadius:8,padding:"8px 12px",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
@@ -420,8 +447,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
                   <select value={bcAction} onChange={e=>setBcAction(e.target.value)} style={{...inp({width:"100%"})}}>
                     <option value="buy">📥 Buy</option>
                     <option value="sell">📤 Sell</option>
-                    <option value="partial_sell">🔶 Partial Sell</option>
-                  </select>
+                    <option value="partial_sell">🔶 Partial Sell</option>       
+</select>
                 </div>
                 <div>
                   <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Target Price ৳ (ঐচ্ছিক)</div>
@@ -477,8 +504,8 @@ function AdminDashboard({adminUser,stocks,onClose}){
           </div>
         )}
 
-        {tab==="chatctrl"&&(        
-   <div>
+        {tab==="chatctrl"&&(
+          <div>
             <div style={{...card(),padding:20,marginBottom:14}}>
               <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>💬 Global Chat Mode</div>
               <div style={{fontSize:12,color:C.muted,marginBottom:16}}>এখান থেকে পুরো group chat এর জন্য একটা master switch নিয়ন্ত্রণ করুন — সবার জন্য প্রযোজ্য হবে।</div>
@@ -565,6 +592,71 @@ function AdminDashboard({adminUser,stocks,onClose}){
           </div>
         )}
 
+        {tab==="activity"&&(
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setActivityView("summary")} style={btn(C.accent,activityView==="summary",true)}>👤 Per-User সারাংশ</button>
+                <button onClick={()=>setActivityView("feed")} style={btn(C.accent,activityView==="feed",true)}>📜 সব Activity (সময়ানুক্রমিক)</button>         
+</div>
+              <button onClick={loadActivity} disabled={activityLoading} style={btn(C.blue,false,true)}>🔄 Refresh</button>
+            </div>
+
+            {activityLoading?(
+              <div style={{...card(),padding:40,textAlign:"center",color:C.muted}}>Loading activity...</div>
+            ):activityView==="summary"?(
+              // Per-user summary: total messages, first/last activity, group vs DM split
+              activitySummary.length===0?(
+                <div style={{...card(),padding:30,textAlign:"center",color:C.muted,fontSize:12}}>এখনো কোনো চ্যাট activity নেই।</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {activitySummary.map(u=>(
+                    <div key={u.senderId} style={{...card(),padding:14}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <div style={{fontWeight:700,color:"#fff",fontSize:14}}>{u.senderName}</div>
+                        <div style={{fontSize:11,color:C.accent,fontWeight:700}}>মোট {u.totalMessages}টি মেসেজ</div>
+                      </div>
+                      <div style={{display:"flex",gap:16,fontSize:11,color:C.muted,marginBottom:6}}>
+                        <span>💬 Group: {u.groupMessages}</span>
+                        <span>✉️ DM: {u.dmMessages}</span>
+                      </div>
+                      <div style={{fontSize:11,color:C.muted}}>
+                        সর্বশেষ: {u.lastActivityAt?new Date(u.lastActivityAt).toLocaleDateString("bn-BD",{day:"numeric",month:"long",year:"numeric"})+" · "+new Date(u.lastActivityAt).toLocaleTimeString("bn-BD",{hour:"2-digit",minute:"2-digit"}):"—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ):(
+              // Full chronological feed across both channels
+              <div>
+                <div style={{marginBottom:10}}>
+                  <input value={activityUserFilter} onChange={e=>setActivityUserFilter(e.target.value)} placeholder="🔍 নাম দিয়ে ফিল্টার করুন..." style={{...inp({width:"100%",boxSizing:"border-box"})}}/>
+                </div>
+                {activityFeed.filter(a=>!activityUserFilter||a.senderName.toLowerCase().includes(activityUserFilter.toLowerCase())).length===0?(
+                  <div style={{...card(),padding:30,textAlign:"center",color:C.muted,fontSize:12}}>কোনো activity পাওয়া যায়নি।</div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {activityFeed.filter(a=>!activityUserFilter||a.senderName.toLowerCase().includes(activityUserFilter.toLowerCase())).slice(0,100).map((a,i)=>(
+                      <div key={i} style={{background:"#070D1A",borderRadius:8,padding:"10px 12px",border:"1px solid "+C.border}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                          <span style={{fontWeight:700,color:"#fff",fontSize:12}}>{a.senderName}</span>
+                          <span style={{fontSize:10,color:a.channel==="group"?C.blue:C.purple,background:(a.channel==="group"?C.blue:C.purple)+"22",borderRadius:5,padding:"1px 7px",fontWeight:700}}>{a.channelLabel}</span>
+                          <span style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{a.date} · {a.time}</span>
+                        </div>
+                        <div style={{fontSize:12,color:C.text,lineHeight:1.5}}>{a.text}</div>
+                      </div>
+                    ))}
+                    {activityFeed.filter(a=>!activityUserFilter||a.senderName.toLowerCase().includes(activityUserFilter.toLowerCase())).length>100&&(
+                      <div style={{textAlign:"center",fontSize:11,color:C.muted,marginTop:6}}>প্রথম ১০০টি দেখানো হচ্ছে</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab==="permissions"&&(
           <div style={{...card(),padding:20}}>
             <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>🔑 Admin Permissions</div>
@@ -633,4 +725,4 @@ function AdminDashboard({adminUser,stocks,onClose}){
   );
 }
 
-export default AdminDashboard;   
+export default AdminDashboard;                
