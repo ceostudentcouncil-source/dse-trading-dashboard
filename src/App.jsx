@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { fbSignIn, fbSignOut, onAuth, fsGet, fsSet } from "./firebase.js";
 import { C, TODAY, DEFAULT_PROFILE, DEFAULT_BROKERS } from "./constants.js";
 import { checkIsAdmin } from "./services/adminService.js";
+import { recordAdminUid } from "./services/conversationService.js";
 import { inp, card, btn } from "./utils/styleHelpers.js";
 import { load, save, daysSince, staleness } from "./utils/dateHelpers.js";
 import { calcScore, getRec, generateStrategy, calcTrailingSL } from "./utils/strategyEngine.js";
@@ -17,6 +18,7 @@ import SettingsPage from "./components/SettingsPage.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
 import NotificationBanner from "./components/NotificationBanner.jsx";
 import BroadcastHistory from "./components/BroadcastHistory.jsx";
+import ChatHub from "./components/ChatHub.jsx";
 import PasteModal from "./components/PasteModal.jsx";
 import DeleteConfirm from "./components/DeleteConfirm.jsx";
 import BuyRankingPanel from "./components/BuyRankingPanel.jsx";
@@ -114,6 +116,9 @@ export default function App() {
           // #6 fix: admin status now comes from Firestore, not a static list
           const adminStatus = await checkIsAdmin(u.email);
           setIsAdminState(adminStatus);
+          // 5B: if this is an admin, record their uid so regular users
+          // can resolve it (needed to compute the shared conversation ID).
+          if (adminStatus) { await recordAdminUid(u.email, u.uid); }
         } catch (e) { console.log("Load error:", e); }
       } else {
         setIsAdminState(false);
@@ -401,7 +406,7 @@ export default function App() {
 
       <div style={{ background: C.bg, borderBottom: "1px solid " + C.border, padding: "0 20px" }}>
         <div style={{ maxWidth: 1140, margin: "0 auto", display: "flex", gap: 4, overflowX: "auto" }}>
-          {[["screener", "📊 Screener"], ["portfolio", "💼 Portfolio"], ["trades", "📋 Trade Log"], ["dashboard", "🏆 Dashboard"], ["risk", "⚠️ Risk"]].map(([t, l]) => (
+          {[["screener", "📊 Screener"], ["portfolio", "💼 Portfolio"], ["trades", "📋 Trade Log"], ["dashboard", "🏆 Dashboard"], ["chat", "💬 Chat"], ["risk", "⚠️ Risk"]].map(([t, l]) => (
             <button key={t} onClick={() => setTab(t)} style={TS(tab === t)}>{l}</button>
           ))}
         </div>
@@ -447,6 +452,10 @@ export default function App() {
               <ProfitDashboard trades={trades} portfolio={port} stocks={stocks} />
             </div>
           </div>
+        )}
+
+        {tab === "chat" && (
+          <ChatHub user={user} profile={profile} isAdmin={isAdminState} />
         )}
 
         {tab === "risk" && (
