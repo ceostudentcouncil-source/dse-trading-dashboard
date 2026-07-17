@@ -5,6 +5,8 @@ import { fsGet, fsSet, fsGetAll } from "../firebase.js";
 import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
 import { sendBroadcast, deleteBroadcast, listenToBroadcasts, getResponseSummary } from "../services/broadcastService.js";
 import { setChatEnabled, getChatSettings, setChatMode, listenToChatSettings } from "../services/chatService.js";
+import { listAllConversations, getConversationId } from "../services/conversationService.js";
+import ConversationThread from "./ConversationThread.jsx";
 
 function AdminDashboard({adminUser,stocks,onClose}){
   const [users,setUsers]=useState([]);
@@ -28,10 +30,14 @@ function AdminDashboard({adminUser,stocks,onClose}){
   const [bcSending,setBcSending]=useState(false);
   const [chatMode,setChatModeState]=useState("open");
   const [chatModeSaving,setChatModeSaving]=useState(false);
+  const [conversations,setConversations]=useState([]);
+  const [conversationsLoading,setConversationsLoading]=useState(true);
+  const [selectedConv,setSelectedConv]=useState(null);
 
   useEffect(()=>{
     loadUsers();
     loadAdmins();
+    loadConversations();
     // Real-time: admin sees broadcast list update live too (e.g. if
     // a second admin is also managing broadcasts at the same time).
     const unsub=listenToBroadcasts(setBroadcasts);
@@ -69,6 +75,17 @@ function AdminDashboard({adminUser,stocks,onClose}){
       setAdmins(list);
     }catch(e){console.log(e);}
     setAdminsLoading(false);
+  };
+
+  // 5B: load every 1-on-1 conversation (all are user<->admin, since
+  // the client never creates any other kind) for the admin's inbox.
+  const loadConversations=async()=>{
+    setConversationsLoading(true);
+    try{
+      const list=await listAllConversations();
+      setConversations(list);
+    }catch(e){console.log(e);}
+    setConversationsLoading(false);
   };
 
   const loadUserData=async(uid)=>{
@@ -141,9 +158,9 @@ function AdminDashboard({adminUser,stocks,onClose}){
     setSaving(true);
     const result=await revokeAdmin(email);
     if(result.ok){
-      await loadAdmins();
+   await loadAdmins();
     }
-setSaving(false);
+    setSaving(false);
     return result;
   };
 
@@ -202,7 +219,7 @@ setSaving(false);
           <button onClick={onClose} style={btn(C.muted,false,true)}>← App এ ফিরুন</button>
         </div>
         <div style={{maxWidth:1140,margin:"8px auto 0",display:"flex",gap:4}}>
-          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["chatctrl","💬 Chat Control"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
+          {[["users","👥 Users"],["stats","📊 Stats"],["broadcast","📢 Broadcast"],["chatctrl","💬 Chat Control"],["conversations","✉️ Conversations"],["permissions","🔑 Permissions"],["settings","⚙️ Settings"]].map(([t,l])=>(
             <button key={t} onClick={()=>setTab(t)} style={TS(t)}>{l}</button>
           ))}
         </div>
@@ -287,8 +304,8 @@ setSaving(false);
                     </button>
                   </div>
 
-                  {/* #5 fix: chat participation toggle */}    
-<div style={{display:"flex",gap:8,marginTop:8}}>
+                  {/* #5 fix: chat participation toggle */}
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
                     <button onClick={()=>toggleChatAccess(selected)} disabled={saving}
                       style={{...btn(selected.chatEnabled===false?C.accent:C.red,true),flex:1,padding:10}}>
                       {selected.chatEnabled===false?"💬 Chat চালু করুন":"🚫 Chat বন্ধ করুন"}
@@ -300,8 +317,8 @@ setSaving(false);
                 {selectedData&&(
                   <div style={{...card(),padding:16}}>
                     <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:13}}>📊 User Portfolio Preview</div>
-                    {selectedData.port&&selectedData.port.length>0?(
-                      <div>
+                    {selectedData.port&&selectedData.port.length>0?(   
+<div>
                         <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Positions: {selectedData.port.length}</div>
                         {selectedData.port.slice(0,5).map((p,i)=>(
                           <div key={i} style={{background:"#070D1A",borderRadius:8,padding:"8px 12px",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
@@ -417,7 +434,6 @@ setSaving(false);
                   </div>
                 )}
               </div>
-              
 
               <div style={{marginBottom:12}}>
                 <div style={{fontSize:11,color:C.muted,marginBottom:3}}>Message</div>
@@ -428,8 +444,9 @@ setSaving(false);
               <button onClick={handleSendBroadcast} disabled={bcSending||!bcStock||!bcMessage.trim()} style={{...btn(C.accent,true),width:"100%",padding:12}}>
                 {bcSending?"⏳ পাঠানো হচ্ছে...":"📢 সবাইকে পাঠান"}
               </button>
-            </div>      
-<div style={{...card(),padding:16}}>
+            </div>
+
+            <div style={{...card(),padding:16}}>
               <div style={{fontWeight:700,color:C.accent,marginBottom:10,fontSize:13}}>📋 Broadcast History ({broadcasts.length})</div>
               {broadcasts.length===0?(
                 <div style={{color:C.muted,fontSize:12}}>এখনো কোনো broadcast পাঠানো হয়নি।</div>
@@ -460,8 +477,8 @@ setSaving(false);
           </div>
         )}
 
-        {tab==="chatctrl"&&(
-          <div>
+        {tab==="chatctrl"&&(        
+   <div>
             <div style={{...card(),padding:20,marginBottom:14}}>
               <div style={{fontWeight:700,color:C.accent,marginBottom:6}}>💬 Global Chat Mode</div>
               <div style={{fontSize:12,color:C.muted,marginBottom:16}}>এখান থেকে পুরো group chat এর জন্য একটা master switch নিয়ন্ত্রণ করুন — সবার জন্য প্রযোজ্য হবে।</div>
@@ -496,6 +513,55 @@ setSaving(false);
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {tab==="conversations"&&(
+          <div style={{display:"grid",gridTemplateColumns:selectedConv?"1fr 1fr":"1fr",gap:16}}>
+            {/* Conversation list — WhatsApp-style: name, last message preview, time */}
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:13,color:C.muted}}>মোট: {conversations.length}টি conversation</div>
+                <button onClick={loadConversations} style={btn(C.blue,false,true)}>🔄 Refresh</button>
+              </div>
+              {conversationsLoading?(
+                <div style={{...card(),padding:40,textAlign:"center",color:C.muted}}>Loading...</div>
+              ):conversations.length===0?(
+                <div style={{...card(),padding:30,textAlign:"center",color:C.muted,fontSize:12}}>এখনো কেউ DM পাঠায়নি।</div>
+              ):conversations.map(c=>{
+                const otherUid=c.participants.find(p=>p!==adminUser.uid)||c.participants[0];
+                const otherName=c.participantNames?.[otherUid]||"User";
+                const otherPhoto=c.participantPhotos?.[otherUid]||"";
+                return(
+                  <div key={c.id} onClick={()=>setSelectedConv({id:c.id,name:otherName})}
+                    style={{...card(),padding:12,marginBottom:8,cursor:"pointer",border:"1px solid "+(selectedConv?.id===c.id?C.purple:C.border)}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <img src={otherPhoto||"https://ui-avatars.com/api/?name="+encodeURIComponent(otherName)+"&background=1A2D4A&color=fff"} style={{width:36,height:36,borderRadius:18}} alt=""/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,color:"#fff",fontSize:13}}>{otherName}</div>
+                        <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.lastMessage||"—"}</div>
+                      </div>
+                      <div style={{fontSize:10,color:C.muted,flexShrink:0}}>{c.lastMessageAt?new Date(c.lastMessageAt).toLocaleDateString("bn-BD",{day:"numeric",month:"short"}):""}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Selected conversation thread */}
+            {selectedConv&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+                  <button onClick={()=>setSelectedConv(null)} style={btn(C.muted,false,true)}>✕ বন্ধ করুন</button>
+                </div>
+                <ConversationThread
+                  conversationId={selectedConv.id}
+                  currentUser={{uid:adminUser.uid,displayName:adminUser.displayName,email:adminUser.email,photoURL:adminUser.photoURL}}
+                  otherPartyName={selectedConv.name}
+                  canWrite={true}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -567,4 +633,4 @@ setSaving(false);
   );
 }
 
-export default AdminDashboard;            
+export default AdminDashboard;   
