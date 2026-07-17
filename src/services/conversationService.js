@@ -95,6 +95,19 @@ export async function listAllConversations() {
              .sort((a, b) => (b.lastMessageAt || "").localeCompare(a.lastMessageAt || ""));
 }
 
+// Admin: real-time version of listAllConversations — fixes the bug
+// where a user's new message/conversation wouldn't show up in the
+// admin's Conversations tab until they manually hit Refresh. Fires
+// immediately with current data, then again on every change.
+export function listenToAllConversations(cb) {
+  return fsListen("conversations", (docs) => {
+    const filtered = docs
+      .filter((c) => Array.isArray(c.participants) && c.participants.length === 2)
+      .sort((a, b) => (b.lastMessageAt || "").localeCompare(a.lastMessageAt || ""));
+    cb(filtered);
+  });
+}
+
 // A regular user only ever has ONE conversation (with the admin),
 // so this just resolves it directly rather than listing everything.
 export async function getMyConversationWithAdmin(userId, adminUid) {
