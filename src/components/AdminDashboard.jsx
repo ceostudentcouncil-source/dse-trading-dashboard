@@ -5,7 +5,7 @@ import { fsGet, fsSet, fsGetAll } from "../firebase.js";
 import { listAdmins, addAdmin, revokeAdmin, SUPER_ADMIN_EMAIL } from "../services/adminService.js";
 import { sendBroadcast, deleteBroadcast, listenToBroadcasts, getResponseSummary } from "../services/broadcastService.js";
 import { setChatEnabled, getChatSettings, setChatMode, listenToChatSettings } from "../services/chatService.js";
-import { listAllConversations, getConversationId } from "../services/conversationService.js";
+import { listAllConversations, listenToAllConversations, getConversationId } from "../services/conversationService.js";
 import { getActivityFeed, getActivitySummaryByUser } from "../services/activityService.js";
 import ConversationThread from "./ConversationThread.jsx";
 
@@ -43,13 +43,20 @@ function AdminDashboard({adminUser,stocks,onClose}){
   useEffect(()=>{
     loadUsers();
     loadAdmins();
-    loadConversations();
     // Real-time: admin sees broadcast list update live too (e.g. if
     // a second admin is also managing broadcasts at the same time).
     const unsub=listenToBroadcasts(setBroadcasts);
     // Real-time: reflect chat mode instantly if changed from another tab/admin.
     const unsubChat=listenToChatSettings(s=>setChatModeState(s?.mode||"open"));
-    return ()=>{unsub();unsubChat();};
+    // Real-time fix: a user's new message/conversation now shows up
+    // immediately in the admin's Conversations tab, no manual
+    // Refresh needed (this was the "এখনো কোনো মেসেজ নেই" bug).
+    setConversationsLoading(true);
+    const unsubConv=listenToAllConversations(list=>{
+      setConversations(list);
+      setConversationsLoading(false);
+    });
+    return ()=>{unsub();unsubChat();unsubConv();};
   },[]);
 
   // Follow-up fix: load seen/followed counts for each broadcast so
@@ -147,7 +154,10 @@ function AdminDashboard({adminUser,stocks,onClose}){
     await setChatEnabled(u.id,newStatus);
     setUsers(prev=>prev.map(x=>x.id===u.id?{...x,chatEnabled:newStatus}:x));
     if(selected&&selected.id===u.id) setSelected(s=>({...s,chatEnabled:newStatus}));
-    setSaving(false); 
+    setSaving(false);
+  };
+
+  const updatePayment=async(u,amount)=>{ 
 };
 
   const updatePayment=async(u,amount)=>{
@@ -297,7 +307,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
             {selected&&(
               <div>
                 <div style={{...card(),padding:20,marginBottom:12,border:"1px solid "+C.purple+"44"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>    
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>     
 <div style={{fontWeight:800,color:"#CE93D8",fontSize:15}}>👤 {selected.displayName||selected.email}</div>
                     <button onClick={()=>{setSelected(null);setSelectedData(null);}} style={btn(C.muted,false,true)}>✕</button>
                   </div>
@@ -447,7 +457,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
                   <select value={bcAction} onChange={e=>setBcAction(e.target.value)} style={{...inp({width:"100%"})}}>
                     <option value="buy">📥 Buy</option>
                     <option value="sell">📤 Sell</option>
-                    <option value="partial_sell">🔶 Partial Sell</option>       
+                    <option value="partial_sell">🔶 Partial Sell</option>      
 </select>
                 </div>
                 <div>
@@ -597,7 +607,7 @@ function AdminDashboard({adminUser,stocks,onClose}){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setActivityView("summary")} style={btn(C.accent,activityView==="summary",true)}>👤 Per-User সারাংশ</button>
-                <button onClick={()=>setActivityView("feed")} style={btn(C.accent,activityView==="feed",true)}>📜 সব Activity (সময়ানুক্রমিক)</button>         
+                <button onClick={()=>setActivityView("feed")} style={btn(C.accent,activityView==="feed",true)}>📜 সব Activity (সময়ানুক্রমিক)</button>      
 </div>
               <button onClick={loadActivity} disabled={activityLoading} style={btn(C.blue,false,true)}>🔄 Refresh</button>
             </div>
