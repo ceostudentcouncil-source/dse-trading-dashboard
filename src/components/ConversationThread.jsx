@@ -3,6 +3,13 @@ import { C } from "../constants.js";
 import { card, btn, inp } from "../utils/styleHelpers.js";
 import { sendConversationMessage, listenToConversationMessages } from "../services/conversationService.js";
 
+// ══════════════════════════════════════════════════════════════
+// CONVERSATION THREAD (5B)
+// Renders one 1-on-1 DM thread. Used both by a regular user (their
+// single conversation with the admin) and by the admin (viewing any
+// specific user's conversation, selected from ConversationList).
+// ══════════════════════════════════════════════════════════════
+
 function formatDateTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -46,10 +53,9 @@ export default function ConversationThread({ conversationId, currentUser, otherP
 
   return (
     <div style={{ ...card(), padding: 16, display: "flex", flexDirection: "column", height: 480 }}>
-      <div style={{ fontWeight: 700, color: C.accent, fontSize: 14, marginBottom: 4 }}>
+      <div style={{ fontWeight: 700, color: C.accent, fontSize: 14, marginBottom: 10 }}>
         💬 {otherPartyName || "Conversation"}
       </div>
-      <div style={{ fontSize: 9, color: C.muted, marginBottom: 8, wordBreak: "break-all" }}>ID: {conversationId}</div>
 
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, marginBottom: 10, paddingRight: 4 }}>
         {messages.length === 0 ? (
