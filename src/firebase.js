@@ -21,14 +21,18 @@ export const fbSignOut = () => signOut(auth);
 export const onAuth = (cb) => onAuthStateChanged(auth, cb);
 
 // ── Firestore Helpers ─────────────────────────────────────────
+// fsGet returns:
+//   - the document data, if it exists
+//   - null, if the document genuinely does not exist
+//   - throws, if the read itself failed (network/permission error)
+// This distinction matters: callers that use "no data" to decide
+// "this is a brand-new user, initialize a fresh profile" must NOT
+// treat a transient network failure the same way — doing so would
+// silently overwrite an existing user's real profile with defaults
+// (this caused the "broker settings disappear after re-login" bug).
 export const fsGet = async (path) => {
-  try {
-    const s = await getDoc(doc(db, ...path.split("/")));
-    return s.exists() ? s.data() : null;
-  } catch (e) {
-    console.log("fsGet error:", e);
-    return null;
-  }
+  const s = await getDoc(doc(db, ...path.split("/")));
+  return s.exists() ? s.data() : null;
 };
 
 export const fsSet = async (path, data, merge = true) => {
