@@ -42,8 +42,6 @@ const uid = () => {
 };
 
 export default function App() {
-  const sv = load(SK);
-
   // -- Auth / Profile State --
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -55,9 +53,9 @@ export default function App() {
 
   // -- App Data State --
   const [tab, setTab] = useState("screener");
-  const [stocks, setStocks] = useState((sv && sv.stocks) || INIT_STOCKS);
-  const [port, setPort] = useState((sv && sv.port) || INIT_PORT);
-  const [trades, setTrades] = useState((sv && sv.trades) || []);
+  const [stocks, setStocks] = useState(INIT_STOCKS);
+  const [port, setPort] = useState(INIT_PORT);
+  const [trades, setTrades] = useState([]);
   const [days, setDays] = useState(7);
   const [customDays, setCustomDays] = useState("");
   const [sector, setSector] = useState("সব");
@@ -98,12 +96,20 @@ export default function App() {
     const unsub = onAuth(async (u) => {
       setUser(u);
       if (u) {
+        let pData = null;
+        let profileFetchFailed = false;
         try {
-          const pData = await fsGet("users/" + u.uid);
+          pData = await fsGet("users/" + u.uid);
+        } catch (e) {
+          console.log("Profile fetch error:", e);
+          profileFetchFailed = true;
+        }
+
+        try {
           const appData = await fsGet("users/" + u.uid + "/appdata/main");
           if (pData) {
             setProfile((p) => ({ ...DEFAULT_PROFILE, ...pData }));
-          } else {
+          } else if (!profileFetchFailed) {
             const newProfile = { ...DEFAULT_PROFILE, email: u.email, displayName: u.displayName, photoURL: u.photoURL, joinDate: TODAY };
             await fsSet("users/" + u.uid, newProfile);
             setProfile(newProfile);
@@ -112,6 +118,13 @@ export default function App() {
             if (appData.stocks && appData.stocks.length > 0) setStocks(appData.stocks);
             if (appData.port && appData.port.length > 0) setPort(appData.port);
             if (appData.trades) setTrades(appData.trades);
+          } else {
+            const cached = load(SK + "-" + u.uid);
+            if (cached) {
+              if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
+              if (cached.port && cached.port.length > 0) setPort(cached.port);
+              if (cached.trades) setTrades(cached.trades);
+            }
           }
           // #6 fix: admin status now comes from Firestore, not a static list
           const adminStatus = await checkIsAdmin(u.email);
@@ -122,6 +135,10 @@ export default function App() {
         } catch (e) { console.log("Load error:", e); }
       } else {
         setIsAdminState(false);
+        setProfile(DEFAULT_PROFILE);
+        setStocks(INIT_STOCKS);
+        setPort(INIT_PORT);
+        setTrades([]);
       }
       setAdminChecked(true);
       setAuthLoading(false);
@@ -138,8 +155,10 @@ export default function App() {
 
   const persist = useCallback((s, p, t) => {
     const data = { stocks: s || stocks, port: p || port, trades: t || trades };
-    save(SK, data);
-    if (user) { fsSet("users/" + user.uid + "/appdata/main", { ...data, updatedAt: new Date().toISOString() }); }
+    if (user) {
+      save(SK + "-" + user.uid, data);
+      fsSet("users/" + user.uid + "/appdata/main", { ...data, updatedAt: new Date().toISOString() });
+    }
   }, [stocks, port, trades, user]);
 
   const portMap = useMemo(() => { const m = {}; port.forEach((p) => { m[p.stock] = (m[p.stock] || 0) + p.shares; }); return m; }, [port]);
@@ -321,7 +340,7 @@ export default function App() {
   if (!user) return <LoginScreen onLogin={async () => { await fbSignIn(); }} />;
 
   if (!isAdminState && profile && profile.isActive === false)
-    return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); }} />;
+    return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(INIT_PORT); setTrades([]); }} />;
 
   if (showAdmin && isAdminState) return <AdminDashboard adminUser={user} stocks={stocks} onClose={() => setShowAdmin(false)} />;
 
@@ -331,7 +350,7 @@ export default function App() {
       user={user}
       onSave={async (p) => { setProfile(p); if (user) { await fsSet("users/" + user.uid, p); } showToast("✅ Settings saved!"); setShowSettings(false); }}
       onClose={() => setShowSettings(false)}
-      onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); }}
+      onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(INIT_PORT); setTrades([]); }}
     />
   );
 
@@ -352,8 +371,8 @@ export default function App() {
           chartLoading={chartLoading}
         />
       )}
-      {showPaste && <PasteModal onApply={applyPaste} onClose={() => setShowPaste(false)} />}
-      {stockPaste && <PasteModal stockName={stockPaste.name} onApply={applyPaste} onClose={() => setStockPaste(null)} />}
+      {showPaste && isAdminState && <PasteModal onApply={applyPaste} onClose={() => setShowPaste(false)} />}
+      {stockPaste && isAdminState && <PasteModal stockName={stockPaste.name} onApply={applyPaste} onClose={() => setStockPaste(null)} />}
       {showBuyRank && <BuyRankingPanel stocks={stocks} port={port} days={days} onClose={() => setShowBuyRank(false)} />}
       {deleteItem && <DeleteConfirm item={deleteItem} onConfirm={doDelete} onClose={() => setDeleteItem(null)} />}
       {undoItem && (
@@ -415,7 +434,7 @@ export default function App() {
       <div style={{ maxWidth: 1140, margin: "0 auto", padding: "16px 20px" }}>
         {tab === "screener" && (
           <ScreenerTab
-            stocks={stocks} filtered={filtered} sigC={sigC} portMap={portMap} days={days} chartData={chartData}
+            stocks={stocks} filtered={filtered} sigC={sigC} portMap={portMap} days={days} chartData={chartData} isAdmin={isAdminState}
             nameFilter={nameFilter} setNameFilter={setNameFilter} sector={sector} setSector={setSector}
             catFilter={catFilter} setCatFilter={setCatFilter}
             sigF={sigF} setSigF={setSigF} sortBy={sortBy} setSortBy={setSortBy}
@@ -430,7 +449,7 @@ export default function App() {
 
         {tab === "portfolio" && (
           <PortfolioTab
-            summ={summ} port={port} stocks={stocks} enriched={enriched} days={days}
+            summ={summ} port={port} stocks={stocks} enriched={enriched} days={days} profile={profile} isAdmin={isAdminState}
             showPortPaste={showPortPaste} setShowPortPaste={setShowPortPaste} portPasteCode={portPasteCode} setPortPasteCode={setPortPasteCode}
             portPasteErr={portPasteErr} setPortPasteErr={setPortPasteErr} portPasteBroker={portPasteBroker} setPortPasteBroker={setPortPasteBroker}
             applyPortPaste={applyPortPaste}
