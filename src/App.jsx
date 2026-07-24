@@ -10,7 +10,17 @@ import { calcScore, getRec, generateStrategy, calcTrailingSL } from "./utils/str
 import { findSRLevels } from "./utils/taIndicators.js";
 import { fetchLiveData as fetchLiveDataService } from "./services/liveDataService.js";
 import { fetchChartData as fetchChartDataService } from "./services/chartDataService.js";
-import { INIT_STOCKS, INIT_PORT } from "./data/initData.js";
+import { INIT_STOCKS } from "./data/initData.js";
+
+// Root cause fix (critical bug): INIT_PORT in data/initData.js contains
+// real hardcoded holdings (EPGL, HAKKANIPUL, LOVELLO, etc.) that were
+// originally the admin's own test/demo portfolio from early development.
+// Every brand-new user (whose Firestore doc has no `port` data yet) was
+// being defaulted to THIS SAME hardcoded portfolio — which is exactly
+// why "the admin's portfolio" appeared to show up for everyone. A new
+// user must start with a genuinely empty portfolio, never someone
+// else's holdings.
+const EMPTY_PORT = [];
 
 import LoginScreen from "./components/LoginScreen.jsx";
 import BlockedScreen from "./components/BlockedScreen.jsx";
@@ -42,6 +52,16 @@ const uid = () => {
 };
 
 export default function App() {
+  // Bug fix: previously this called load(SK) with a single, fixed
+  // localStorage key ("dse-v7") BEFORE Firebase Auth had resolved
+  // who the current user even is. On a shared/reused browser, that
+  // meant whichever user's data was last saved on this device would
+  // flash (or, if the new user's Firestore doc had no portfolio yet,
+  // permanently show) as the CURRENT user's portfolio — e.g. an
+  // admin's shares appearing for a brand-new regular user.
+  // Fix: never read localStorage until we know WHO is signed in, and
+  // key it per-user from then on (see the auth useEffect below).
+
   // -- Auth / Profile State --
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -54,7 +74,7 @@ export default function App() {
   // -- App Data State --
   const [tab, setTab] = useState("screener");
   const [stocks, setStocks] = useState(INIT_STOCKS);
-  const [port, setPort] = useState(INIT_PORT);
+  const [port, setPort] = useState(EMPTY_PORT);
   const [trades, setTrades] = useState([]);
   const [days, setDays] = useState(7);
   const [customDays, setCustomDays] = useState("");
@@ -96,6 +116,13 @@ export default function App() {
     const unsub = onAuth(async (u) => {
       setUser(u);
       if (u) {
+        // Bug fix: previously, if fsGet("users/"+uid) failed for ANY
+        // reason (network hiccup, transient error) it silently
+        // returned null just like "document doesn't exist" — which
+        // made an EXISTING user look brand-new, resetting their
+        // profile (brokers, bank accounts, etc.) back to defaults.
+        // Now a genuine fetch failure is caught separately and never
+        // triggers profile re-initialization.
         let pData = null;
         let profileFetchFailed = false;
         try {
@@ -110,15 +137,28 @@ export default function App() {
           if (pData) {
             setProfile((p) => ({ ...DEFAULT_PROFILE, ...pData }));
           } else if (!profileFetchFailed) {
+            // Only treat this as "genuinely new user" when the fetch
+            // itself succeeded and simply found nothing.
             const newProfile = { ...DEFAULT_PROFILE, email: u.email, displayName: u.displayName, photoURL: u.photoURL, joinDate: TODAY };
             await fsSet("users/" + u.uid, newProfile);
             setProfile(newProfile);
           }
+          // If profileFetchFailed and pData is null, we deliberately
+          // do nothing here — keep whatever profile state already
+          // exists (e.g. from a previous successful load) rather
+          // than resetting it.
           if (appData) {
             if (appData.stocks && appData.stocks.length > 0) setStocks(appData.stocks);
             if (appData.port && appData.port.length > 0) setPort(appData.port);
             if (appData.trades) setTrades(appData.trades);
           } else {
+            // Bug fix: only NOW — once we know exactly which user is
+            // signed in — do we consult localStorage, and only as a
+            // last-resort offline cache for THIS specific uid. This
+            // replaces the old behavior of reading a single shared
+            // "dse-v7" key before auth even resolved, which could
+            // leak one user's (e.g. the admin's) portfolio to
+            // whoever next opened the app on the same device.
             const cached = load(SK + "-" + u.uid);
             if (cached) {
               if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
@@ -135,9 +175,12 @@ export default function App() {
         } catch (e) { console.log("Load error:", e); }
       } else {
         setIsAdminState(false);
+        // Defensive: if Firebase Auth itself reports signed-out (not
+        // just our own sign-out buttons), also clear cached portfolio
+        // state so a stale previous user's data can never linger.
         setProfile(DEFAULT_PROFILE);
         setStocks(INIT_STOCKS);
-        setPort(INIT_PORT);
+        setPort(EMPTY_PORT);
         setTrades([]);
       }
       setAdminChecked(true);
@@ -155,6 +198,10 @@ export default function App() {
 
   const persist = useCallback((s, p, t) => {
     const data = { stocks: s || stocks, port: p || port, trades: t || trades };
+    // Bug fix: localStorage caching must be keyed per-user (by uid),
+    // never a single shared key — otherwise the next person to open
+    // the app on this device/browser would see the previous user's
+    // cached portfolio before Firestore data arrives.
     if (user) {
       save(SK + "-" + user.uid, data);
       fsSet("users/" + user.uid + "/appdata/main", { ...data, updatedAt: new Date().toISOString() });
@@ -340,7 +387,7 @@ export default function App() {
   if (!user) return <LoginScreen onLogin={async () => { await fbSignIn(); }} />;
 
   if (!isAdminState && profile && profile.isActive === false)
-    return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(INIT_PORT); setTrades([]); }} />;
+    return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(EMPTY_PORT); setTrades([]); }} />;
 
   if (showAdmin && isAdminState) return <AdminDashboard adminUser={user} stocks={stocks} onClose={() => setShowAdmin(false)} />;
 
@@ -350,7 +397,7 @@ export default function App() {
       user={user}
       onSave={async (p) => { setProfile(p); if (user) { await fsSet("users/" + user.uid, p); } showToast("✅ Settings saved!"); setShowSettings(false); }}
       onClose={() => setShowSettings(false)}
-      onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(INIT_PORT); setTrades([]); }}
+      onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(EMPTY_PORT); setTrades([]); }}
     />
   );
 
