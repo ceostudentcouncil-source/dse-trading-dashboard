@@ -433,9 +433,11 @@ export default function App() {
             </div>
             <ShareButton showToast={showToast} />
             <button onClick={() => setShowBuyRank(true)} style={btn(C.accent, true)}>🎯 Buy Ranking</button>
-            <button onClick={fetchLiveData} disabled={liveLoading} style={{ ...btn(liveStatus === "ok" ? C.accent : liveStatus === "error" ? C.red : C.blue, liveStatus === "ok", false), opacity: liveLoading ? 0.7 : 1 }}>
-              {liveLoading ? "⏳ Loading..." : liveStatus === "ok" ? "🟢 Updated" : "📡 DSE Sync"}
-            </button>
+            {isAdminState && (
+              <button onClick={fetchLiveData} disabled={liveLoading} style={{ ...btn(liveStatus === "ok" ? C.accent : liveStatus === "error" ? C.red : C.blue, liveStatus === "ok", false), opacity: liveLoading ? 0.7 : 1 }}>
+                {liveLoading ? "⏳ Loading..." : liveStatus === "ok" ? "🟢 Updated" : "📡 DSE Sync"}
+              </button>
+            )}
             {isAdminState && (
               <button onClick={() => setShowAdmin(true)} style={{ ...btn("#9C27B0", true, true), display: "flex", alignItems: "center", gap: 4 }}>👑 Admin</button>
             )}
@@ -446,8 +448,8 @@ export default function App() {
         </div>
         <div style={{ maxWidth: 1140, margin: "4px auto 0", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: days === 0 ? C.purple : C.yellow, fontWeight: 600 }}>{days === 0 ? "🔮 Natural Mode — Fundamental + Technical Analysis" : "📅 " + days + " দিনের strategy · EMA20/SMA50/VMA20 scoring active"}</span>
-          {liveUpdatedAt && <span style={{ fontSize: 11, color: C.accent }}>🟢 শেষ update: {liveUpdatedAt}</span>}
-          {liveStatus === "error" && <span style={{ fontSize: 11, color: C.red }}>❌ Sync ব্যর্থ — পরে চেষ্টা করুন</span>}
+          {isAdminState && liveUpdatedAt && <span style={{ fontSize: 11, color: C.accent }}>🟢 শেষ update: {liveUpdatedAt}</span>}
+          {isAdminState && liveStatus === "error" && <span style={{ fontSize: 11, color: C.red }}>❌ Sync ব্যর্থ — পরে চেষ্টা করুন</span>}
         </div>
       </div>
 
