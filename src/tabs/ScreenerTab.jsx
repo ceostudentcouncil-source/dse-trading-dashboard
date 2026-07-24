@@ -82,7 +82,7 @@ export default function ScreenerTab({
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {filtered.map((s,idx)=>{
-          const st=staleness(s.updatedAt);const isExp=expanded===s.id;
+          const st=staleness(s.updatedAt);const isExp=s.id!=null&&expanded===s.id;
           const dCount=daysSince(s.updatedAt);
           const vmaRatio=s.vma20?s.vol/s.vma20:0;
           return(
