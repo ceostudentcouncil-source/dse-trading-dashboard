@@ -42,6 +42,29 @@ const uid = () => {
   return Date.now() * 1000 + (_idCounter % 1000);
 };
 
+// Bug fix: "clicking one stock expands several/all of them at once".
+// Root cause — if two or more stocks in the loaded data ended up with a
+// missing/undefined `id` (or a duplicate id — e.g. from cached
+// localStorage data saved before this fix existed), then
+// `expanded === s.id` becomes true for every one of them simultaneously,
+// since they all compare equal. This sanitizer runs on every stocks
+// array as it's loaded (Firestore OR local cache) and guarantees each
+// stock has a unique, defined id — assigning a fresh one wherever it's
+// missing or already used earlier in the same list.
+const sanitizeStocks = (list) => {
+  if (!Array.isArray(list)) return list;
+  const seen = new Set();
+  return list.map((s) => {
+    if (s.id == null || seen.has(s.id)) {
+      const fixed = { ...s, id: uid() };
+      seen.add(fixed.id);
+      return fixed;
+    }
+    seen.add(s.id);
+    return s;
+  });
+};
+
 export default function App() {
   // -- Auth / Profile State --
   const [user, setUser] = useState(null);
@@ -94,7 +117,7 @@ export default function App() {
 
   // -- Optimized Firebase Auth + Parallel Data Load Strategy --
   useEffect(() => {
-    // সেফটি টাইমার: ৩ সেকেন্ডের মধ্যে উত্তর না এলে অ্যাপ ওপেন হয়ে যাবে
+    // সেফটি টাইমার: ৩ সেকেন্ডের মধ্যে উত্তর না এলে অ্যাপ ওপেন হয়ে যাবে
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
       setAdminChecked(true);
@@ -103,16 +126,18 @@ export default function App() {
     const unsub = onAuth(async (u) => {
       setUser(u);
       if (u) {
-        // ১. ইনস্ট্যান্ট রেন্ডার: লোকাল ক্যাশ থেকে ডাটা দেখিয়ে অ্যাপ দ্রুত ফাস্ট রেন্ডার করবে
+        // ১. ইনস্ট্যান্ট রেন্ডার: লোকাল ক্যাশ থেকে ডাটা দেখিয়ে অ্যাপ দ্রুত ফাস্ট রেন্ডার করবে
+        // Bug fix: sanitizeStocks() applied here too — cached data can
+        // predate this fix and still carry corrupted/duplicate ids.
         const cached = load(SK + "-" + u.uid);
         if (cached) {
-          if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
+          if (cached.stocks && cached.stocks.length > 0) setStocks(sanitizeStocks(cached.stocks));
           if (cached.port && cached.port.length > 0) setPort(cached.port);
           if (cached.trades) setTrades(cached.trades);
-          setAuthLoading(false); // ক্যাশ ডাটা পাওয়া গেলে সাথে সাথেই লোডার রিমুভ হবে
+          setAuthLoading(false); // ক্যাশ ডাটা পাওয়া গেলে সাথে সাথেই লোডার রিমুভ হবে
         }
 
-        // ২. প্যারালাল রিকোয়েস্ট (Promise.allSettled): ৩টি নেটওয়ার্ক কল ইন্ডিপেন্ডেন্টলি সম্পন্ন হবে
+        // ২. প্যারালাল রিকোয়েস্ট (Promise.allSettled): ৩টি নেটওয়ার্ক কল ইন্ডিপেন্ডেন্টলি সম্পন্ন হবে
         try {
           const [pDataResult, appDataResult, adminStatusResult] = await Promise.allSettled([
             fsGet("users/" + u.uid),
@@ -133,9 +158,23 @@ export default function App() {
           }
 
           // অ্যাপ ডাটা রেসপন্স হ্যান্ডলিং
+          // Bug fix: sanitizeStocks() applied to the authoritative
+          // Firestore data as well — this is the main fix for the
+          // "clicking one stock expands several of them" bug. If
+          // sanitizing actually changed anything (missing/duplicate
+          // ids were found and fixed), write the corrected list back
+          // to Firestore immediately — otherwise the same corrupted
+          // ids would just come back on the next login.
           if (appDataResult.status === "fulfilled" && appDataResult.value) {
             const appData = appDataResult.value;
-            if (appData.stocks && appData.stocks.length > 0) setStocks(appData.stocks);
+            if (appData.stocks && appData.stocks.length > 0) {
+              const cleanStocks = sanitizeStocks(appData.stocks);
+              setStocks(cleanStocks);
+              const idsChanged = cleanStocks.some((s, i) => s.id !== appData.stocks[i]?.id);
+              if (idsChanged) {
+                fsSet("users/" + u.uid + "/appdata/main", { stocks: cleanStocks, updatedAt: new Date().toISOString() });
+              }
+            }
             if (appData.port && appData.port.length > 0) setPort(appData.port);
             if (appData.trades) setTrades(appData.trades);
           }
