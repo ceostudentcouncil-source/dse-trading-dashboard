@@ -92,9 +92,9 @@ export default function App() {
   const [np, setNp] = useState({ stock:"", broker:"Ecosoft", shares:"", buyRate:"", target1:"", target2:"", stopLoss:"", buyDate: TODAY, customSellTarget:"" });
   const [npSearch, setNpSearch] = useState("");
 
-  // -- Optimized Firebase Auth + Data Load Strategy --
+  // -- Optimized Firebase Auth + Parallel Data Load Strategy --
   useEffect(() => {
-    // সেফটি টাইমার: ৩ সেকেন্ডের মধ্যে ফায়ারবেস রেসপন্স না করলে জোরপূর্বক লোডিং তুলে অ্যাপ ওপেন করা হবে
+    // সেফটি টাইমার: ৩ সেকেন্ডের মধ্যে উত্তর না এলে অ্যাপ ওপেন হয়ে যাবে
     const safetyTimer = setTimeout(() => {
       setAuthLoading(false);
       setAdminChecked(true);
@@ -103,16 +103,16 @@ export default function App() {
     const unsub = onAuth(async (u) => {
       setUser(u);
       if (u) {
-        // ১. ইনস্ট্যান্ট রেন্ডার: ফায়ারবেসের জন্য অপেক্ষা না করে লোকাল ক্যাশ থেকে ডাটা দেখিয়ে দিন
+        // ১. ইনস্ট্যান্ট রেন্ডার: লোকাল ক্যাশ থেকে ডাটা দেখিয়ে অ্যাপ দ্রুত ফাস্ট রেন্ডার করবে
         const cached = load(SK + "-" + u.uid);
         if (cached) {
           if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
           if (cached.port && cached.port.length > 0) setPort(cached.port);
           if (cached.trades) setTrades(cached.trades);
-          setAuthLoading(false); // ক্যাশ ডাটা পেলেই লোডার সাথে সাথেই সরিয়ে দিন
+          setAuthLoading(false); // ক্যাশ ডাটা পাওয়া গেলে সাথে সাথেই লোডার রিমুভ হবে
         }
 
-        // ২. প্যারালাল রিকোয়েস্ট: ৩টি নেটওয়ার্ক কল একসাথে সম্পন্ন হবে
+        // ২. প্যারালাল রিকোয়েস্ট (Promise.allSettled): ৩টি নেটওয়ার্ক কল ইন্ডিপেন্ডেন্টলি সম্পন্ন হবে
         try {
           const [pDataResult, appDataResult, adminStatusResult] = await Promise.allSettled([
             fsGet("users/" + u.uid),
@@ -120,7 +120,7 @@ export default function App() {
             checkIsAdmin(u.email)
           ]);
 
-          // Profile Response
+          // প্রোফাইল রেসপন্স হ্যান্ডলিং
           if (pDataResult.status === "fulfilled") {
             const pData = pDataResult.value;
             if (pData) {
@@ -132,7 +132,7 @@ export default function App() {
             }
           }
 
-          // App Data Response
+          // অ্যাপ ডাটা রেসপন্স হ্যান্ডলিং
           if (appDataResult.status === "fulfilled" && appDataResult.value) {
             const appData = appDataResult.value;
             if (appData.stocks && appData.stocks.length > 0) setStocks(appData.stocks);
@@ -140,7 +140,7 @@ export default function App() {
             if (appData.trades) setTrades(appData.trades);
           }
 
-          // Admin Status Response
+          // এডমিন স্ট্যাটাস রেসপন্স হ্যান্ডলিং
           if (adminStatusResult.status === "fulfilled") {
             const adminStatus = adminStatusResult.value;
             setIsAdminState(adminStatus);
@@ -157,7 +157,7 @@ export default function App() {
         setTrades([]);
       }
 
-      clearTimeout(safetyTimer); // সফলভাবে ডাটা ফেচ হলে সেফটি টাইমার ক্লিয়ার
+      clearTimeout(safetyTimer);
       setAdminChecked(true);
       setAuthLoading(false);
     });
