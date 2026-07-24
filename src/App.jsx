@@ -28,6 +28,7 @@ import SettingsPage from "./components/SettingsPage.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
 import NotificationBanner from "./components/NotificationBanner.jsx";
 import InstallPrompt from "./components/InstallPrompt.jsx";
+import ShareButton from "./components/ShareButton.jsx";
 import BroadcastHistory from "./components/BroadcastHistory.jsx";
 import ChatHub from "./components/ChatHub.jsx";
 import PasteModal from "./components/PasteModal.jsx";
@@ -458,6 +459,7 @@ export default function App() {
               <input type="number" min={1} max={365} value={customDays} onChange={(e) => setCustomDays(e.target.value)} placeholder="Custom" style={{ ...inp({ width: 65, padding: "4px 8px", fontSize: 12 }), border: "1px solid " + (customDays ? C.yellow : C.border) }} />
               {customDays && <button onClick={() => { const d = parseInt(customDays, 10); if (d > 0) { setDays(d); setCustomDays(""); } }} style={btn(C.yellow, true, true)}>✅</button>}
             </div>
+            <ShareButton showToast={showToast} />
             <button onClick={() => setShowBuyRank(true)} style={btn(C.accent, true)}>🎯 Buy Ranking</button>
             <button onClick={fetchLiveData} disabled={liveLoading} style={{ ...btn(liveStatus === "ok" ? C.accent : liveStatus === "error" ? C.red : C.blue, liveStatus === "ok", false), opacity: liveLoading ? 0.7 : 1 }}>
               {liveLoading ? "⏳ Loading..." : liveStatus === "ok" ? "🟢 Updated" : "📡 DSE Sync"}
