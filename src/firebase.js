@@ -1,6 +1,19 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot, query, orderBy } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  doc, 
+  setDoc, 
+  getDoc, 
+  deleteDoc, 
+  collection, 
+  getDocs, 
+  onSnapshot, 
+  query, 
+  orderBy 
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCfWlWpPOW5igAZjRaLnWHHa7UcAFFnWcE",
@@ -13,7 +26,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// ── Firestore Initialization with Persistent Cache ─────────────
+// এটি প্রথমবার এবং পরবর্তীতে সকল ডাটা লোকাল ব্রাউজারে ক্যাশ করে রাখবে
+// ফলে নেটওয়ার্ক ধীরগতির হলেও ডাটা মুহূর্তের মধ্যে লোড হবে।
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
 const googleProvider = new GoogleAuthProvider();
 
 export const fbSignIn = () => signInWithPopup(auth, googleProvider);
@@ -21,15 +43,6 @@ export const fbSignOut = () => signOut(auth);
 export const onAuth = (cb) => onAuthStateChanged(auth, cb);
 
 // ── Firestore Helpers ─────────────────────────────────────────
-// fsGet returns:
-//   - the document data, if it exists
-//   - null, if the document genuinely does not exist
-//   - throws, if the read itself failed (network/permission error)
-// This distinction matters: callers that use "no data" to decide
-// "this is a brand-new user, initialize a fresh profile" must NOT
-// treat a transient network failure the same way — doing so would
-// silently overwrite an existing user's real profile with defaults
-// (this caused the "broker settings disappear after re-login" bug).
 export const fsGet = async (path) => {
   const s = await getDoc(doc(db, ...path.split("/")));
   return s.exists() ? s.data() : null;
@@ -65,11 +78,6 @@ export const fsGetAll = async (collPath) => {
   }
 };
 
-// Real-time listener for a whole collection — calls `cb` with the
-// current array of docs immediately, then again on every change.
-// Returns an unsubscribe function (call it in a useEffect cleanup).
-// Used for broadcasts and chat, where users need to see updates
-// live without refreshing.
 export const fsListen = (collPath, cb, orderByField) => {
   try {
     const ref = orderByField
@@ -88,10 +96,6 @@ export const fsListen = (collPath, cb, orderByField) => {
   }
 };
 
-// Real-time listener for a SINGLE document — calls `cb` with the
-// current data (or null if it doesn't exist) immediately, then again
-// on every change. Used for settings/chat, where multiple admins or
-// tabs need to see mode changes live without a full collection scan.
 export const fsListenDoc = (path, cb) => {
   try {
     return onSnapshot(doc(db, ...path.split("/")), (snap) => {
