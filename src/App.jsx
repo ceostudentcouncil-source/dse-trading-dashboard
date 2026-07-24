@@ -12,14 +12,6 @@ import { fetchLiveData as fetchLiveDataService } from "./services/liveDataServic
 import { fetchChartData as fetchChartDataService } from "./services/chartDataService.js";
 import { INIT_STOCKS } from "./data/initData.js";
 
-// Root cause fix (critical bug): INIT_PORT in data/initData.js contains
-// real hardcoded holdings (EPGL, HAKKANIPUL, LOVELLO, etc.) that were
-// originally the admin's own test/demo portfolio from early development.
-// Every brand-new user (whose Firestore doc has no `port` data yet) was
-// being defaulted to THIS SAME hardcoded portfolio — which is exactly
-// why "the admin's portfolio" appeared to show up for everyone. A new
-// user must start with a genuinely empty portfolio, never someone
-// else's holdings.
 const EMPTY_PORT = [];
 
 import LoginScreen from "./components/LoginScreen.jsx";
@@ -44,9 +36,6 @@ import RiskTab from "./tabs/RiskTab.jsx";
 
 const SK = "dse-v7";
 
-// Collision-safe unique ID generator — fixes duplicate-key bug (#10)
-// where rapid Date.now() calls (manual add, batch paste) produced
-// identical IDs and caused React to open the wrong stock card.
 let _idCounter = 0;
 const uid = () => {
   _idCounter += 1;
@@ -54,24 +43,14 @@ const uid = () => {
 };
 
 export default function App() {
-  // Bug fix: previously this called load(SK) with a single, fixed
-  // localStorage key ("dse-v7") BEFORE Firebase Auth had resolved
-  // who the current user even is. On a shared/reused browser, that
-  // meant whichever user's data was last saved on this device would
-  // flash (or, if the new user's Firestore doc had no portfolio yet,
-  // permanently show) as the CURRENT user's portfolio — e.g. an
-  // admin's shares appearing for a brand-new regular user.
-  // Fix: never read localStorage until we know WHO is signed in, and
-  // key it per-user from then on (see the auth useEffect below).
-
   // -- Auth / Profile State --
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [isAdminState, setIsAdminState] = useState(false); // #6 fix: dynamic, Firestore-backed
-  const [adminChecked, setAdminChecked] = useState(false); // avoids a flash of "not admin" while checking
+  const [isAdminState, setIsAdminState] = useState(false);
+  const [adminChecked, setAdminChecked] = useState(false);
 
   // -- App Data State --
   const [tab, setTab] = useState("screener");
@@ -81,7 +60,7 @@ export default function App() {
   const [days, setDays] = useState(7);
   const [customDays, setCustomDays] = useState("");
   const [sector, setSector] = useState("সব");
-  const [catFilter, setCatFilter] = useState("সব"); // #8 fix: category filter was missing
+  const [catFilter, setCatFilter] = useState("সব");
   const [sigF, setSigF] = useState("সব");
   const [nameFilter, setNameFilter] = useState("");
   const [sortBy, setSortBy] = useState("score");
@@ -113,82 +92,80 @@ export default function App() {
   const [np, setNp] = useState({ stock:"", broker:"Ecosoft", shares:"", buyRate:"", target1:"", target2:"", stopLoss:"", buyDate: TODAY, customSellTarget:"" });
   const [npSearch, setNpSearch] = useState("");
 
-  // -- Firebase Auth + Data Load --
+  // -- Optimized Firebase Auth + Data Load Strategy --
   useEffect(() => {
+    // সেফটি টাইমার: ৩ সেকেন্ডের মধ্যে ফায়ারবেস রেসপন্স না করলে জোরপূর্বক লোডিং তুলে অ্যাপ ওপেন করা হবে
+    const safetyTimer = setTimeout(() => {
+      setAuthLoading(false);
+      setAdminChecked(true);
+    }, 3000);
+
     const unsub = onAuth(async (u) => {
       setUser(u);
       if (u) {
-        // Bug fix: previously, if fsGet("users/"+uid) failed for ANY
-        // reason (network hiccup, transient error) it silently
-        // returned null just like "document doesn't exist" — which
-        // made an EXISTING user look brand-new, resetting their
-        // profile (brokers, bank accounts, etc.) back to defaults.
-        // Now a genuine fetch failure is caught separately and never
-        // triggers profile re-initialization.
-        let pData = null;
-        let profileFetchFailed = false;
-        try {
-          pData = await fsGet("users/" + u.uid);
-        } catch (e) {
-          console.log("Profile fetch error:", e);
-          profileFetchFailed = true;
+        // ১. ইনস্ট্যান্ট রেন্ডার: ফায়ারবেসের জন্য অপেক্ষা না করে লোকাল ক্যাশ থেকে ডাটা দেখিয়ে দিন
+        const cached = load(SK + "-" + u.uid);
+        if (cached) {
+          if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
+          if (cached.port && cached.port.length > 0) setPort(cached.port);
+          if (cached.trades) setTrades(cached.trades);
+          setAuthLoading(false); // ক্যাশ ডাটা পেলেই লোডার সাথে সাথেই সরিয়ে দিন
         }
 
+        // ২. প্যারালাল রিকোয়েস্ট: ৩টি নেটওয়ার্ক কল একসাথে সম্পন্ন হবে
         try {
-          const appData = await fsGet("users/" + u.uid + "/appdata/main");
-          if (pData) {
-            setProfile((p) => ({ ...DEFAULT_PROFILE, ...pData }));
-          } else if (!profileFetchFailed) {
-            // Only treat this as "genuinely new user" when the fetch
-            // itself succeeded and simply found nothing.
-            const newProfile = { ...DEFAULT_PROFILE, email: u.email, displayName: u.displayName, photoURL: u.photoURL, joinDate: TODAY };
-            await fsSet("users/" + u.uid, newProfile);
-            setProfile(newProfile);
+          const [pDataResult, appDataResult, adminStatusResult] = await Promise.allSettled([
+            fsGet("users/" + u.uid),
+            fsGet("users/" + u.uid + "/appdata/main"),
+            checkIsAdmin(u.email)
+          ]);
+
+          // Profile Response
+          if (pDataResult.status === "fulfilled") {
+            const pData = pDataResult.value;
+            if (pData) {
+              setProfile((p) => ({ ...DEFAULT_PROFILE, ...pData }));
+            } else {
+              const newProfile = { ...DEFAULT_PROFILE, email: u.email, displayName: u.displayName, photoURL: u.photoURL, joinDate: TODAY };
+              fsSet("users/" + u.uid, newProfile);
+              setProfile(newProfile);
+            }
           }
-          // If profileFetchFailed and pData is null, we deliberately
-          // do nothing here — keep whatever profile state already
-          // exists (e.g. from a previous successful load) rather
-          // than resetting it.
-          if (appData) {
+
+          // App Data Response
+          if (appDataResult.status === "fulfilled" && appDataResult.value) {
+            const appData = appDataResult.value;
             if (appData.stocks && appData.stocks.length > 0) setStocks(appData.stocks);
             if (appData.port && appData.port.length > 0) setPort(appData.port);
             if (appData.trades) setTrades(appData.trades);
-          } else {
-            // Bug fix: only NOW — once we know exactly which user is
-            // signed in — do we consult localStorage, and only as a
-            // last-resort offline cache for THIS specific uid. This
-            // replaces the old behavior of reading a single shared
-            // "dse-v7" key before auth even resolved, which could
-            // leak one user's (e.g. the admin's) portfolio to
-            // whoever next opened the app on the same device.
-            const cached = load(SK + "-" + u.uid);
-            if (cached) {
-              if (cached.stocks && cached.stocks.length > 0) setStocks(cached.stocks);
-              if (cached.port && cached.port.length > 0) setPort(cached.port);
-              if (cached.trades) setTrades(cached.trades);
-            }
           }
-          // #6 fix: admin status now comes from Firestore, not a static list
-          const adminStatus = await checkIsAdmin(u.email);
-          setIsAdminState(adminStatus);
-          // 5B: if this is an admin, record their uid so regular users
-          // can resolve it (needed to compute the shared conversation ID).
-          if (adminStatus) { await recordAdminUid(u.email, u.uid); }
-        } catch (e) { console.log("Load error:", e); }
+
+          // Admin Status Response
+          if (adminStatusResult.status === "fulfilled") {
+            const adminStatus = adminStatusResult.value;
+            setIsAdminState(adminStatus);
+            if (adminStatus) { recordAdminUid(u.email, u.uid); }
+          }
+        } catch (e) {
+          console.log("Parallel load error:", e);
+        }
       } else {
         setIsAdminState(false);
-        // Defensive: if Firebase Auth itself reports signed-out (not
-        // just our own sign-out buttons), also clear cached portfolio
-        // state so a stale previous user's data can never linger.
         setProfile(DEFAULT_PROFILE);
         setStocks(INIT_STOCKS);
         setPort(EMPTY_PORT);
         setTrades([]);
       }
+
+      clearTimeout(safetyTimer); // সফলভাবে ডাটা ফেচ হলে সেফটি টাইমার ক্লিয়ার
       setAdminChecked(true);
       setAuthLoading(false);
     });
-    return unsub;
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsub();
+    };
   }, []);
 
   const getBrokerComm = (brokerId) => {
@@ -200,10 +177,6 @@ export default function App() {
 
   const persist = useCallback((s, p, t) => {
     const data = { stocks: s || stocks, port: p || port, trades: t || trades };
-    // Bug fix: localStorage caching must be keyed per-user (by uid),
-    // never a single shared key — otherwise the next person to open
-    // the app on this device/browser would see the previous user's
-    // cached portfolio before Firestore data arrives.
     if (user) {
       save(SK + "-" + user.uid, data);
       fsSet("users/" + user.uid + "/appdata/main", { ...data, updatedAt: new Date().toISOString() });
@@ -335,12 +308,11 @@ export default function App() {
     let list = [...scored];
     if (nameFilter.trim()) list = list.filter((s) => s.name.toUpperCase().includes(nameFilter.trim().toUpperCase()));
     if (sector !== "সব") list = list.filter((s) => s.sector === sector);
-    if (catFilter !== "সব") list = list.filter((s) => s.cat === catFilter); // #8 fix
+    if (catFilter !== "সব") list = list.filter((s) => s.cat === catFilter);
     if (sigF !== "সব") {
       const m = { "STRONG BUY": (s) => s.score >= 75, "BUY": (s) => s.score >= 60 && s.score < 75, "WATCH": (s) => s.score >= 45 && s.score < 60, "WEAK": (s) => s.score >= 30 && s.score < 45, "AVOID": (s) => s.score < 30 };
       list = list.filter(m[sigF] || ((_) => true));
     }
-    // #9 fix: alphabetic (name) sort option added
     list.sort((a, b) => {
       if (sortBy === "score") return b.score - a.score;
       if (sortBy === "rsi") return a.rsi - b.rsi;
