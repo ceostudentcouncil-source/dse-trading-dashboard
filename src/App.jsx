@@ -27,6 +27,7 @@ import BlockedScreen from "./components/BlockedScreen.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
 import NotificationBanner from "./components/NotificationBanner.jsx";
+import InstallPrompt from "./components/InstallPrompt.jsx";
 import BroadcastHistory from "./components/BroadcastHistory.jsx";
 import ChatHub from "./components/ChatHub.jsx";
 import PasteModal from "./components/PasteModal.jsx";
@@ -384,7 +385,12 @@ export default function App() {
     </div>
   );
 
-  if (!user) return <LoginScreen onLogin={async () => { await fbSignIn(); }} />;
+  if (!user) return (
+    <>
+      <InstallPrompt />
+      <LoginScreen onLogin={async () => { await fbSignIn(); }} />
+    </>
+  );
 
   if (!isAdminState && profile && profile.isActive === false)
     return <BlockedScreen profile={profile} onSignOut={async () => { await fbSignOut(); setUser(null); setProfile(DEFAULT_PROFILE); setStocks(INIT_STOCKS); setPort(EMPTY_PORT); setTrades([]); }} />;
@@ -403,6 +409,7 @@ export default function App() {
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: "Inter,-apple-system,sans-serif", color: C.text }}>
+      <InstallPrompt />
       <NotificationBanner user={user} />
       {toast && <div style={{ position: "fixed", top: 20, right: 20, zIndex: 10001, background: toast.type === "err" ? C.red : toast.type === "warn" ? C.orange : C.accent, color: "#fff", borderRadius: 10, padding: "12px 20px", fontWeight: 700, fontSize: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 340 }}>{toast.msg}</div>}
 
