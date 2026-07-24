@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { fbSignIn, fbSignOut, onAuth, fsGet, fsSet } from "./firebase.js";
 import { C, TODAY, DEFAULT_PROFILE, DEFAULT_BROKERS } from "./constants.js";
 import { checkIsAdmin } from "./services/adminService.js";
+import { ensureFavorites, listenToWatchlists, toggleFavorite, addStockToWatchlist, removeStockFromWatchlist, FAVORITES_ID } from "./services/watchlistService.js";
 import { recordAdminUid } from "./services/conversationService.js";
 import { inp, card, btn } from "./utils/styleHelpers.js";
 import { load, save, daysSince, staleness } from "./utils/dateHelpers.js";
@@ -21,6 +22,7 @@ import AdminDashboard from "./components/AdminDashboard.jsx";
 import NotificationBanner from "./components/NotificationBanner.jsx";
 import InstallPrompt from "./components/InstallPrompt.jsx";
 import ShareButton from "./components/ShareButton.jsx";
+import WatchlistBar from "./components/WatchlistBar.jsx";
 import BroadcastHistory from "./components/BroadcastHistory.jsx";
 import ChatHub from "./components/ChatHub.jsx";
 import PasteModal from "./components/PasteModal.jsx";
@@ -88,6 +90,8 @@ export default function App() {
   const [nameFilter, setNameFilter] = useState("");
   const [sortBy, setSortBy] = useState("score");
   const [expanded, setExpanded] = useState(null);
+  const [watchlists, setWatchlists] = useState([]);
+  const [activeWatchlistId, setActiveWatchlistId] = useState(null); // null = "সব" (all stocks)
   const [editMode, setEditMode] = useState(null);
   const [editPort, setEditPort] = useState(null);
   const [showAddS, setShowAddS] = useState(false);
@@ -185,6 +189,12 @@ export default function App() {
             setIsAdminState(adminStatus);
             if (adminStatus) { recordAdminUid(u.email, u.uid); }
           }
+
+          // Watchlists: make sure this user has their default
+          // "Favorites" list — fire-and-forget, doesn't block the
+          // rest of app load. The real-time listener (separate
+          // useEffect below) picks up the result once created.
+          ensureFavorites(u.uid).catch((e) => console.log("ensureFavorites error:", e));
         } catch (e) {
           console.log("Parallel load error:", e);
         }
@@ -194,6 +204,8 @@ export default function App() {
         setStocks(INIT_STOCKS);
         setPort(EMPTY_PORT);
         setTrades([]);
+        setWatchlists([]);
+        setActiveWatchlistId(null);
       }
 
       clearTimeout(safetyTimer);
@@ -206,6 +218,17 @@ export default function App() {
       unsub();
     };
   }, []);
+
+  // Real-time watchlists listener — separate from the main auth
+  // effect so it cleanly subscribes/unsubscribes whenever the signed-in
+  // user changes, without re-running the whole auth/profile-load flow.
+  useEffect(() => {
+    if (!user) return;
+    const unsubWatch = listenToWatchlists(user.uid, (lists) => {
+      setWatchlists(lists);
+    });
+    return unsubWatch;
+  }, [user]);
 
   const getBrokerComm = (brokerId) => {
     const b = (profile.brokers || DEFAULT_BROKERS).find((x) => x.id === brokerId || x.name === brokerId);
@@ -248,6 +271,24 @@ export default function App() {
 
   const updateStock = (id, f, v) => { const u = stocks.map((s) => (s.id === id ? { ...s, [f]: v } : s)); setStocks(u); persist(u, null, null); };
   const removeStock = (id) => { const u = stocks.filter((s) => s.id !== id); setStocks(u); persist(u, null, null); showToast("Stock সরানো হয়েছে।"); };
+
+  // Heart icon on a stock card calls this — toggles that stock in/out
+  // of the Favorites watchlist specifically (not the currently active tab).
+  const handleToggleFavorite = async (stockName) => {
+    if (!user) return;
+    const nowFavorited = await toggleFavorite(user.uid, stockName, favoriteNames);
+    showToast(nowFavorited ? "❤️ Favorites এ যোগ হয়েছে!" : "Favorites থেকে সরানো হয়েছে।");
+  };
+
+  // Generic add/remove for the per-stock "add to custom watchlist" dropdown.
+  const handleAddToWatchlist = (watchlistId, stockName, currentNames) => {
+    if (!user) return;
+    addStockToWatchlist(user.uid, watchlistId, stockName, currentNames);
+  };
+  const handleRemoveFromWatchlist = (watchlistId, stockName, currentNames) => {
+    if (!user) return;
+    removeStockFromWatchlist(user.uid, watchlistId, stockName, currentNames);
+  };
 
   const selectStockForNS = (s) => {
     setNs({ name: s.name, sector: s.sector, cat: s.cat, price: String(s.price), eps: String(s.eps), pe: String(s.pe), nav: String(s.nav), div: String(s.div), rsi: String(s.rsi), macd: String(s.macd), vol: String(s.vol), vma20: String(s.vma20 || ""), ema20: String(s.ema20 || ""), sma50: String(s.sma50 || ""), ret6m: String(s.ret6m), inst: String(s.inst), circuit: String(s.circuit || "") });
@@ -343,8 +384,13 @@ export default function App() {
     return { ...s, score, rec, str };
   }), [stocks, days, portMap]);
 
+  const activeWatchlist = useMemo(() => watchlists.find((w) => w.id === activeWatchlistId) || null, [watchlists, activeWatchlistId]);
+  const favoritesList = useMemo(() => watchlists.find((w) => w.id === FAVORITES_ID) || null, [watchlists]);
+  const favoriteNames = favoritesList?.stockNames || [];
+
   const filtered = useMemo(() => {
     let list = [...scored];
+    if (activeWatchlist) list = list.filter((s) => activeWatchlist.stockNames.includes(s.name));
     if (nameFilter.trim()) list = list.filter((s) => s.name.toUpperCase().includes(nameFilter.trim().toUpperCase()));
     if (sector !== "সব") list = list.filter((s) => s.sector === sector);
     if (catFilter !== "সব") list = list.filter((s) => s.cat === catFilter);
@@ -360,7 +406,7 @@ export default function App() {
       return b.eps - a.eps;
     });
     return list;
-  }, [scored, sector, catFilter, sigF, sortBy, days, nameFilter]);
+  }, [scored, activeWatchlist, sector, catFilter, sigF, sortBy, days, nameFilter]);
 
   const sigC = useMemo(() => {
     const c = { "STRONG BUY": 0, "BUY": 0, "WATCH": 0, "WEAK": 0, "AVOID": 0 };
@@ -513,6 +559,9 @@ export default function App() {
             expanded={expanded} setExpanded={setExpanded} editMode={editMode} setEditMode={setEditMode}
             updateStock={updateStock} removeStock={removeStock} showToast={showToast}
             setChartStock={setChartStock} fetchChartDataForSymbol={fetchChartDataForSymbol} setStockPaste={setStockPaste}
+            user={user} watchlists={watchlists} activeWatchlistId={activeWatchlistId} setActiveWatchlistId={setActiveWatchlistId}
+            favoriteNames={favoriteNames} onToggleFavorite={handleToggleFavorite}
+            onAddToWatchlist={handleAddToWatchlist} onRemoveFromWatchlist={handleRemoveFromWatchlist}
           />
         )}
 
